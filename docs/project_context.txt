@@ -111,18 +111,29 @@ COMPLETED:
   ✅ Camera module working (1280x720 @ 30fps)
   ✅ Face detection module (src/contactless/face_detection/)
   ✅ Video overlay with metrics panel
+  ✅ UTKFace dataset downloaded (66,966 images via Kaggle CLI)
+  ✅ Raw dataset loader (src/contactless/age_estimation/dataset.py)
+  ✅ Memory-efficient preprocessing script (scripts/preprocess_utkface.py)
+  ✅ Preprocessed data created (data/processed/utkface/)
+      - Train: 46,840 images (70%)
+      - Val:   10,035 images (15%)
+      - Test:  10,043 images (15%)
+      - Image size: 224x224
+  ✅ Processed dataset loader (src/contactless/age_estimation/processed_dataset.py)
+  ✅ Test suite (tests/test_age_dataset.py) - ALL TESTS PASSING
 
 NEXT STEPS:
-  1. Download UTKFace dataset from Kaggle (~20,000 images)
-     - See docs/datasets.md for instructions
-  2. Create age estimation dataset loader (src/contactless/age_estimation/dataset.py)
-  3. Build age estimation CNN model (from scratch)
-  4. Train model on UTKFace
-  5. Compare with pretrained MobileNetV3-Small
+  1. 🔜 Build age estimation CNN model (src/contactless/age_estimation/model.py)
+  2. Create training script (scripts/train_age.py)
+  3. Train from-scratch model on preprocessed UTKFace
+  4. Compare with pretrained MobileNetV3-Small
+  5. Integrate age estimator into video overlay
 
 RUN COMMANDS:
-  Face Detection: python -m src.main --mode face-detect
-  Camera Test:    python -m src.main --mode camera-test
+  Face Detection:    python -m src.main --mode face-detect
+  Camera Test:       python -m src.main --mode camera-test
+  Preprocess Data:   python scripts/preprocess_utkface.py
+  Run Tests:         python tests/test_age_dataset.py
 
 
 ================================================================================
