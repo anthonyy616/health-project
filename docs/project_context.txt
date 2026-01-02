@@ -82,23 +82,48 @@ DEVELOPMENT PRIORITIES
 ================================================================================
 
 PHASE 1: CV-ONLY MODULES (No additional hardware required)
-  1. Face detection with MediaPipe
-  2. Age estimation model (from scratch + pretrained comparison)
-  3. Heart rate via rPPG
-  4. Respiratory rate detection
-  5. Pupil detection/eye tracking
+  1. ✅ Face detection with MediaPipe (COMPLETE - 478 landmarks, video overlay)
+  2. 🔜 Age estimation model (NEXT - download UTKFace, train from scratch)
+  3. ⏳ Heart rate via rPPG
+  4. ⏳ Respiratory rate detection
+  5. ⏳ Pupil detection/eye tracking
 
 PHASE 2: HARDWARE INTEGRATION (When hardware arrives)
-  6. Temperature measurement (MLX90614)
-  7. Wearable band prototype (ESP32 + sensors)
-  8. BLE communication
-  9. Sensor fusion (Kalman filter)
+  6. ⏳ Temperature measurement (MLX90614)
+  7. ⏳ Wearable band prototype (ESP32 + sensors)
+  8. ⏳ BLE communication
+  9. ⏳ Sensor fusion (Kalman filter)
 
 PHASE 3: SYSTEM INTEGRATION
-  10. FastAPI dashboard
-  11. MySQL database integration
-  12. Anomaly alerting
-  13. Testing with volunteers
+  10. ⏳ FastAPI dashboard
+  11. ⏳ MySQL database integration
+  12. ⏳ Anomaly alerting
+  13. ⏳ Testing with volunteers
+
+================================================================================
+CURRENT PROGRESS & NEXT STEPS
+================================================================================
+
+COMPLETED:
+  ✅ Project structure setup
+  ✅ Virtual environment (Python 3.9.1)
+  ✅ Dependencies installed (requirements.txt)
+  ✅ Camera module working (1280x720 @ 30fps)
+  ✅ Face detection module (src/contactless/face_detection/)
+  ✅ Video overlay with metrics panel
+
+NEXT STEPS:
+  1. Download UTKFace dataset from Kaggle (~20,000 images)
+     - See docs/datasets.md for instructions
+  2. Create age estimation dataset loader (src/contactless/age_estimation/dataset.py)
+  3. Build age estimation CNN model (from scratch)
+  4. Train model on UTKFace
+  5. Compare with pretrained MobileNetV3-Small
+
+RUN COMMANDS:
+  Face Detection: python -m src.main --mode face-detect
+  Camera Test:    python -m src.main --mode camera-test
+
 
 ================================================================================
 TARGET METRICS & ACCURACY
@@ -209,6 +234,53 @@ Usage:
   stats.print_report()
 
 ================================================================================
+DEVELOPMENT ENVIRONMENT
+================================================================================
+
+Python Version: 3.9.1 (REQUIRED - mediapipe compatibility)
+Virtual Environment: .venv (must be activated before running)
+
+Activation Commands:
+  Windows: .\.venv\Scripts\activate
+  Linux/Mac: source .venv/bin/activate
+
+Running the Camera Test:
+  python -m src.main --mode camera-test
+  # Or with explicit venv python:
+  .\.venv\Scripts\python.exe -m src.main --mode camera-test
+
+Running Modes:
+  --mode camera-test    # Test webcam (press 'q' to quit)
+  --mode face-detect    # Face detection with landmarks
+  --mode age            # Age estimation
+  --mode heart-rate     # rPPG heart rate detection
+  --mode dashboard      # Start FastAPI dashboard
+  --mode all            # Full vital signs monitoring
+
+================================================================================
+VIDEO OVERLAY FEATURES
+================================================================================
+
+The camera/video output must display real-time metrics overlay:
+
+Display Elements:
+  • Face bounding box (green rectangle)
+  • Facial landmarks (468 points visualization)
+  • Age estimation (top-left: "Age: 25 ±4 years")
+  • Heart rate (top-left: "HR: 72 BPM")
+  • Respiratory rate (top-left: "Resp: 16 BPM")
+  • Pupil dilation (top-left: "Pupil: 4.5mm")
+  • Confidence bars for each metric
+  • FPS counter (bottom-right)
+  • Processing latency (bottom-right)
+
+Overlay Styling:
+  • Semi-transparent background for text readability
+  • Color-coded alerts (green=normal, yellow=warning, red=critical)
+  • Smooth transitions for metric updates
+  • Status indicators for each module
+
+================================================================================
 NOTES FOR AI ASSISTANT
 ================================================================================
 
@@ -220,5 +292,8 @@ NOTES FOR AI ASSISTANT
 • BLE for wearable is a MUST-HAVE, not optional
 • Real-time inference required for final presentation
 • All models trained from scratch, then compared to pre-trained
+• Python 3.9.1 is REQUIRED for mediapipe compatibility
+• Video overlay with metrics is a core feature
 
 ================================================================================
+
