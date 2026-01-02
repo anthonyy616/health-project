@@ -1,0 +1,99 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Data - large datasets should not be committed
+data/raw/
+data/processed/
+data/calibration/
+*.zip
+*.tar.gz
+*.h5
+*.hdf5
+
+# Model weights - too large for git
+models/weights/*.pt
+models/weights/*.pth
+models/weights/*.tflite
+models/weights/*.onnx
+models/weights/*.pkl
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# MySQL dumps (but keep schema in docs)
+/*.sql
+!docs/*.sql
+
+# Test outputs
+test_outputs/
+recordings/
+
+# Compiled C++/ESP32
+*.o
+*.out
+*.elf
+*.bin
+
+# Supabase
+.supabase/
+supabase/
+supabase.json
+
+# Database
+mine/
+docs/*.sql
+src/db_connect/*.py
+
+#Config
+config.yaml
+
+#Dependencies
+requirements.txt
+scripts/check_datasets.py
+scripts/setup.py
+
+#Docs
+thesis.txt
+personal.txt
+/research/
+
+#Logs
+logs/

@@ -1,0 +1,224 @@
+================================================================================
+VITAL SIGNS MONITORING SYSTEM - PROJECT CONTEXT
+================================================================================
+Last Updated: 2026-01-02
+
+================================================================================
+PROJECT OVERVIEW
+================================================================================
+This is a final-year graduation project aimed at optimizing vital sign monitoring 
+in hospitals and clinics. The system uses non-invasive, contactless methods where 
+possible, combined with a wearable elastic band for continuous monitoring.
+
+Key Vitals Monitored:
+  • Body temperature (requires IR sensor - MLX90614)
+  • Blood pressure (estimated non-invasively)
+  • Eye metrics (pupil dilation via eye tracking)
+  • Heart rate (BPM via remote photoplethysmography - rPPG)
+  • Respiratory rate (breaths per minute via chest movement detection)
+  • Age estimation (via facial ML models)
+
+================================================================================
+CORE COMPONENTS
+================================================================================
+
+1. CONTACTLESS STATION (Computer Vision)
+   - Uses webcam for initial development (laptop built-in webcam)
+   - Production: Logitech C920 webcam + MLX90614 IR sensor
+   - CV Modules:
+     * Face detection & landmarks (MediaPipe)
+     * Age estimation (MobileNetV3, trained from scratch + pretrained comparison)
+     * Heart rate via rPPG (facial color changes)
+     * Respiratory rate (chest movement detection)
+     * Pupil dilation (eye tracking with MediaPipe Iris)
+     * Temperature (IR sensor integration - hardware dependent)
+
+2. WEARABLE ELASTIC BAND
+   - Contains sensors for backup/continuous monitoring
+   - Components: ESP32-S3, MAX30102 pulse oximeter, MPU6050 IMU
+   - Runs lightweight neural networks (TensorFlow Lite)
+   - Data sent via BLE to central unit
+   - BLE communication is a MUST-HAVE requirement
+
+3. CENTRAL UNIT
+   - Development: Laptop (no Raspberry Pi currently available)
+   - Production: Raspberry Pi 4B
+   - Processes data, fuses inputs (Kalman filter)
+   - Displays results on FastAPI dashboard (HTML frontend)
+   - Alerts for anomalies
+
+================================================================================
+TECHNICAL SPECIFICATIONS
+================================================================================
+
+HARDWARE CONSTRAINTS:
+  • GPU: Intel UHD Graphics (integrated, NO CUDA)
+  • Training: CPU-only (optimized batch sizes, mixed precision disabled)
+  • RAM: Standard laptop specifications
+  • No Raspberry Pi available during development phase
+
+SOFTWARE STACK:
+  • Language: Python 3.11
+  • Computer Vision: OpenCV, MediaPipe
+  • ML Framework: PyTorch (primary), TensorFlow Lite (edge deployment)
+  • Backend: FastAPI (sync endpoints, HTML frontend via Jinja2)
+  • Database: MySQL (local) + Supabase (backup)
+  • Communication: BLE (for wearable band)
+  • Optimization: ONNX Runtime for inference
+
+MODEL TRAINING APPROACH:
+  • Training from scratch (primary approach)
+  • Compare results with pre-trained/transfer learning models
+  • Datasets required: UTKFace (age), UBFC-rPPG (heart rate), VIPL-HR (heart rate)
+  • See docs/datasets.md for download instructions
+
+INFERENCE MODE:
+  • Development: Batch processing acceptable
+  • Presentation/Demo: MUST be real-time inference
+  • Target latency: <10 seconds per scan
+
+================================================================================
+DEVELOPMENT PRIORITIES
+================================================================================
+
+PHASE 1: CV-ONLY MODULES (No additional hardware required)
+  1. Face detection with MediaPipe
+  2. Age estimation model (from scratch + pretrained comparison)
+  3. Heart rate via rPPG
+  4. Respiratory rate detection
+  5. Pupil detection/eye tracking
+
+PHASE 2: HARDWARE INTEGRATION (When hardware arrives)
+  6. Temperature measurement (MLX90614)
+  7. Wearable band prototype (ESP32 + sensors)
+  8. BLE communication
+  9. Sensor fusion (Kalman filter)
+
+PHASE 3: SYSTEM INTEGRATION
+  10. FastAPI dashboard
+  11. MySQL database integration
+  12. Anomaly alerting
+  13. Testing with volunteers
+
+================================================================================
+TARGET METRICS & ACCURACY
+================================================================================
+
+| Metric              | Target       | Status       |
+|---------------------|--------------|--------------|
+| Age Estimation      | ±4 years     | Not Started  |
+| Heart Rate (rPPG)   | ±5 BPM       | Not Started  |
+| Temperature         | ±1°C         | Pending HW   |
+| Respiratory Rate    | ±2 BPM       | Not Started  |
+| Latency             | <10 seconds  | Not Started  |
+| Battery (Band)      | >8 hours     | Pending HW   |
+
+Aggregate accuracy target: 90-95%
+
+================================================================================
+TESTING REQUIREMENTS
+================================================================================
+
+• Volunteer Testing: 30 volunteers (REAL requirement, not aspirational)
+• Metrics to measure: accuracy vs ground truth, latency, robustness
+• Lighting conditions: varied (indoor, different skin tones)
+• Data storage: MySQL (local) + Supabase (backup)
+• Privacy: Own database, no HIPAA/GDPR certification required
+
+================================================================================
+TIMELINE
+================================================================================
+
+Duration: 8-10 weeks (Solo project)
+Start Date: January 2026
+
+Week 1-2: Face detection, age estimation model
+Week 3-4: rPPG heart rate, respiratory rate
+Week 5-6: Pupil detection, model optimization
+Week 7-8: Dashboard integration, data fusion
+Week 9-10: Volunteer testing, documentation, presentation prep
+
+================================================================================
+DATASETS REQUIRED
+================================================================================
+
+See docs/datasets.md for detailed download instructions.
+
+| Dataset   | Purpose          | Where to Get                                |
+|-----------|------------------|---------------------------------------------|
+| UTKFace   | Age estimation   | kaggle.com/datasets/jangedoo/utkface-new    |
+| UBFC-rPPG | Heart rate       | sites.google.com/view/yaboromance/ubfc-rppg |
+| VIPL-HR   | Heart rate (adv) | vipl.ict.ac.cn (request access)             |
+
+================================================================================
+MEDICAL REFERENCES
+================================================================================
+
+• Non-contact IR thermography: IEEE TBME (2021) on fever screening
+• rPPG: Wang et al., IEEE TBME (2017)
+• Respiration via IMU: AL-Rawi et al. (2020)
+• Pupil detection: Iskander et al. (2019)
+• Age estimation: Rothe et al., DEX model (IMDB-WIKI)
+• Wearable systems: Pantelopoulos & Bourbakis, Sensors (2010)
+
+================================================================================
+DATABASE CONFIGURATION
+================================================================================
+
+Database: health_record_project (MySQL)
+Admin User: vitals_admin
+Environment: .env file (copy from .env.example)
+
+Connection Module: src/db_connect/
+  • connection.py - MySQL connection manager with pooling
+  • queries.py - Pre-built queries for patients, readings, alerts
+  • statistics.py - ML statistics and accuracy analysis
+
+Tables:
+  • patients - Patient demographics
+  • health_record_project - Vital readings (renamed from vital_readings)
+  • alerts - Anomaly alerts with severity levels
+  • volunteers - 30-volunteer testing registry
+  • test_sessions - Ground truth data for accuracy testing
+  • model_performance - From-scratch vs pretrained comparison
+
+Setup Steps:
+  1. Run docs/create_admin_user.sql in MySQL Workbench
+  2. Run docs/database_schema.sql to create tables
+  3. Copy .env.example to .env and set DB_PASSWORD
+  4. Test: python -m src.db_connect.connection
+
+================================================================================
+ML STATISTICS FEATURES
+================================================================================
+
+Module: src/db_connect/statistics.py
+
+Features:
+  • get_summary() - Aggregate statistics from all readings
+  • calculate_accuracy() - MAE, RMSE vs ground truth
+  • get_model_comparison() - From-scratch vs pretrained results
+  • volunteer_progress() - Track 30-volunteer requirement
+  • get_readings_by_condition() - Analyze by lighting/skin tone/motion
+  • plot_error_distribution() - Visualize prediction errors
+  • print_report() - Generate formatted statistics report
+
+Usage:
+  from src.db_connect.statistics import MLStatistics
+  stats = MLStatistics()
+  stats.print_report()
+
+================================================================================
+NOTES FOR AI ASSISTANT
+================================================================================
+
+• Use this file as the primary context window for all code generation
+• Assume good intent; focus on feasibility for student project
+• Prioritize CV-only modules first (no hardware dependencies)
+• CPU-only training - optimize batch sizes accordingly
+• FastAPI backend with HTML frontend (not React/Vue)
+• BLE for wearable is a MUST-HAVE, not optional
+• Real-time inference required for final presentation
+• All models trained from scratch, then compared to pre-trained
+
+================================================================================
