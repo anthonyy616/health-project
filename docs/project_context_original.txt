@@ -1,0 +1,45 @@
+Project Overview: This is a final-year graduation project aimed at optimizing vital sign monitoring in hospitals and clinics. The system uses non-invasive, contactless methods where possible, combined with a wearable elastic band for continuous monitoring. 
+Key vitals include: body temperature, 
+blood pressure (estimated non-invasively), 
+eye metrics (e.g., pupil dilation), 
+heart rate (BPM), 
+respiratory rate (breaths per minute), 
+and age estimation via facial analysis.
+
+Core Components:
+	•	Contactless Station: Uses computer vision for temperature (infrared), heart rate (remote photoplethysmography - rPPG from facial color changes), respiratory rate (chest movement detection), pupil dilation (eye tracking), and age estimation (facial ML models).
+	•	Wearable Elastic Band: Contains sensors for backup/continuous data (e.g., pulse oximeter for BPM, IMU for respiration). Custom chip (e.g., ESP32 or Raspberry Pi Pico) runs lightweight neural networks. Data sent via BLE to central unit.
+	•	Central Unit: Raspberry Pi processes data, fuses inputs (e.g., Kalman filter), displays results on a dashboard, and alerts for anomalies.
+Tech Stack:
+	•	Software: Python 3.11, OpenCV (computer vision), MediaPipe (face/eye landmarks), PyTorch/TensorFlow (DL models, e.g., MobileNetV3 for age), TensorFlow Lite/ONNX for edge deployment, Flask/FastAPI (dashboard), MQTT/BLE for communication, SQLite/PostgreSQL (data storage).
+	•	ML/DL: Supervised learning (not reinforcement). Transfer learning on pre-trained models. Datasets: UTKFace (age), UBFC-rPPG/VIPL-HR (heart rate), BreathData (respiration), FLIR/MAAS (thermal), custom thermal clips.
+	•	Optimization: Mixed-precision training, data augmentation (flips, noise), early stopping, cosine annealing, quantization to int8. Target: 90-95% accuracy (e.g., age ±4 years, HR ±5 BPM).
+	•	Hardware: Raspberry Pi 4B (2GB) as hub, Logitech C920 webcam, MLX90614 IR sensor, MAX30102 pulse oximeter, MPU6050 IMU, ESP32-S3 dev kit, 3.7V 900mAh LiPo battery, elastic neoprene band.
+Implementation Flow:
+	1.	Data Collection: Use datasets + custom calibration (e.g., compare IR temp to clinical thermometer).
+	2.	Model Training: Fine-tune on GPU/CPU, validate on unseen data.
+	3.	Integration: Fuse sensor data on Pi, deploy quantized models to band.
+	4.	Testing: On 20-30 volunteers, measure latency (<10s), battery life (>8 hours).
+	5.	Scalability: Multi-Pi setup for wards; limitations: no arrhythmia detection, not medical-grade.
+Medical References:
+	•	Non-contact IR thermography: IEEE TBME (2021) on fever screening.
+	•	rPPG: Wang et al., IEEE TBME (2017).
+	•	Respiration via IMU: AL-Rawi et al. (2020).
+	•	Pupil detection: Iskander et al. (2019).
+	•	Age estimation: Rothe et al., DEX model (IMDB-WIKI).
+	•	Wearable systems: Pantelopoulos & Bourbakis, Sensors (2010).
+Datasets:
+	•	Age: UTKFace/IMDB-WIKI.
+	•	HR: UBFC-rPPG, VIPL-HR.
+	•	Resp: BreathData (IMU + optical).
+	•	Temp: FLIR public, MAAS; custom (forehead vs. oral).
+	•	Dilation: Custom eye frames or open eye datasets.
+
+Roadmap (12 Weeks): Weeks 1-2: Lit review, hardware ordering. 
+Weeks 3-4: Contactless temp + face detection. 
+Weeks 5-6: rPPG HR + respiration. 
+Weeks 7-8: Band prototype + BLE. 
+Weeks 9-10: Age + pupil models. 
+Weeks 11: Fusion + dashboard. 
+Week 12: Testing + write-up.
+Use this as your context window to generate code snippets, debug issues, suggest improvements, or expand modules. Assume good intent; focus on feasibility for student project. No code yet—wait for specific requests and ask any questions you might have or any clarifications you might need for your context window.

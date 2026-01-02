@@ -1,0 +1,1 @@
+# FastAPI Dashboard module
