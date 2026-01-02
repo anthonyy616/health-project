@@ -15,6 +15,61 @@ sys.path.insert(0, str(project_root))
 from src.utils import Config, setup_logger
 from src.utils.camera import Camera, test_camera
 
+import cv2
+
+
+def run_face_detection(camera_id: int = None):
+    """
+    Run face detection with video overlay.
+    Press 'q' to quit, 'l' to toggle landmarks, 'm' to toggle mesh.
+    """
+    from src.contactless.face_detection import FaceDetector, VitalsOverlay
+    
+    print("=" * 50)
+    print("FACE DETECTION MODE")
+    print("=" * 50)
+    print("Controls:")
+    print("  q - Quit")
+    print("  l - Toggle landmarks")
+    print("  m - Toggle full mesh")
+    print("=" * 50)
+    
+    # Initialize components
+    detector = FaceDetector()
+    overlay = VitalsOverlay(show_landmarks=True)
+    
+    with Camera(device_id=camera_id) as cam:
+        for frame_data in cam.stream():
+            frame = frame_data.frame
+            
+            # Detect face
+            result = detector.detect(frame)
+            
+            # Draw overlay
+            output = overlay.draw(frame, result)
+            
+            # Show landmarks if enabled
+            if overlay.show_landmarks and result.detected:
+                output = detector.draw_landmarks(output, result)
+            
+            # Display
+            cv2.imshow("Face Detection - Press 'q' to quit", output)
+            
+            # Handle keyboard
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('l'):
+                overlay.show_landmarks = not overlay.show_landmarks
+                print(f"Landmarks: {'ON' if overlay.show_landmarks else 'OFF'}")
+            elif key == ord('m'):
+                overlay.show_mesh = not overlay.show_mesh
+                print(f"Mesh: {'ON' if overlay.show_mesh else 'OFF'}")
+    
+    detector.close()
+    cv2.destroyAllWindows()
+    print("Face detection stopped.")
+
 
 def main():
     """Main entry point"""
@@ -64,8 +119,7 @@ def main():
         
     elif args.mode == "face-detect":
         logger.info("Running face detection...")
-        # TODO: Import and run face detection module
-        logger.warning("Face detection module not yet implemented")
+        run_face_detection(camera_id=args.camera)
         
     elif args.mode == "age":
         logger.info("Running age estimation...")
