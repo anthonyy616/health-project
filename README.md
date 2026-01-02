@@ -1,4 +1,4 @@
-# Vital Signs Monitoring System
+# Vital Signs Monitoring System using Computer Vision and NN's trained on Embedded Raspberry PI
 
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -39,38 +39,13 @@ final_year_project/
 └── scripts/                    # Utility scripts
 ```
 
-## 🚀 Quick Start
+
 
 ### Prerequisites
 - Python 3.11+
 - Webcam (laptop built-in or USB)
 - MySQL Server (optional, for data storage)
 
-### Installation
-
-```bash
-# Clone the repository
-git clone <your-repo-url>
-cd final_year_project
-
-# Create virtual environment
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Run the Application
-
-```bash
-# Start the FastAPI backend
-python -m src.main
-
-# Or run specific modules
-python -m src.contactless.face_detection.detect
-```
 
 ## 📊 Datasets
 
@@ -81,16 +56,7 @@ python -m src.contactless.face_detection.detect
 | Respiration | Custom | Collected during testing |
 | Temperature | FLIR Thermal | [Link](https://www.flir.com/oem/adas/adas-dataset-form/) |
 
-See `docs/datasets.md` for download instructions.
 
-## 🔧 Configuration
-
-Edit `config.yaml` to customize:
-- Camera settings (resolution, FPS)
-- Model paths and thresholds
-- Training hyperparameters
-- Database connection
-- API host/port
 
 ## 📈 Target Metrics
 
@@ -110,7 +76,7 @@ Edit `config.yaml` to customize:
 - **Weeks 7-8**: Dashboard, data fusion
 - **Weeks 9-10**: Testing with volunteers, documentation
 
-## 👤 Author
+## 👤 Author[Link:[anthony](https://anthonyy616.vercel.app/)]
 
 Final Year Project - Solo Development
 
