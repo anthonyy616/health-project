@@ -90,6 +90,9 @@ requirements.txt
 scripts/check_datasets.py
 scripts/setup.py
 
+#Kaggle
+kaggle.json
+
 #Docs
 thesis.txt
 personal.txt
