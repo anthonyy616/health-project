@@ -1,0 +1,152 @@
+================================================================================
+EXECUTION PATH - AGE ESTIMATION MODULE
+================================================================================
+Last Updated: 2026-01-03
+
+This document tracks all implementation steps, results, and rationale for the
+age estimation component of the Vital Signs Monitoring System.
+
+================================================================================
+COMPLETED STEPS
+================================================================================
+
+------------------------------------------------------------------------------
+STEP 1: Dataset Acquisition (2026-01-02)
+------------------------------------------------------------------------------
+WHAT: Downloaded UTKFace dataset via Kaggle CLI
+WHY:  Need labeled face images with age for training age estimation model
+FILES: data/raw/utkface/ (66,976 images)
+RESULT: ✅ 66,918 valid images with age labels (0-100 years)
+
+------------------------------------------------------------------------------
+STEP 2: Data Preprocessing (2026-01-02)
+------------------------------------------------------------------------------
+WHAT: Created memory-efficient preprocessing pipeline
+WHY:  Raw images need resizing, validation, and train/val/test splits
+FILES:
+  - scripts/preprocessing/preprocess_utkface.py
+  - data/processed/utkface/ (train/val/test folders)
+  - src/contactless/age_estimation/processed_dataset.py
+RESULT: ✅ 
+  - Train: 46,840 images (70%)
+  - Val:   10,035 images (15%)
+  - Test:  10,043 images (15%)
+  - Image size: 224x224
+
+------------------------------------------------------------------------------
+STEP 3: LightAgeNet Model (2026-01-02)
+------------------------------------------------------------------------------
+WHAT: Built custom CNN from scratch for age estimation
+WHY:  Project requirement to train from scratch, then compare with pretrained
+FILES:
+  - models/age_detection/light_age_net.py (LightAgeNet, LightAgeNetV2)
+  - training/age_detection/train.py
+  - src/contactless/age_estimation/estimator.py
+RESULT: ✅ Model created with 1.6M parameters
+
+------------------------------------------------------------------------------
+STEP 4: Initial Training - LightAgeNet (2026-01-02)
+------------------------------------------------------------------------------
+WHAT: Trained LightAgeNet for 5 epochs on CPU
+WHY:  Test training pipeline and get baseline metrics
+TRAINING TIME: 212 minutes (3.5 hours)
+RESULT: ⚠️ Test MAE: 8.52 years
+  - Within ±5 years:  39.6%
+  - Within ±10 years: 67.9%
+ANALYSIS: Error too high for practical use - need transfer learning
+
+------------------------------------------------------------------------------
+STEP 5: Webcam Integration (2026-01-02)
+------------------------------------------------------------------------------
+WHAT: Integrated age estimator with face detection for real-time demo
+WHY:  Allow testing on real people via webcam
+FILES:
+  - src/main.py (added run_age_estimation function)
+  - Mode: python -m src.main --mode age
+RESULT: ✅ Working but predicted 26 years for 20-year-old user (6yr error)
+
+------------------------------------------------------------------------------
+STEP 6: Transfer Learning - MobileNetV3 (2026-01-03)
+------------------------------------------------------------------------------
+WHAT: Implemented MobileNetV3-Small with ImageNet pretrained weights
+WHY:  Pretrained features should converge faster and generalize better
+FILES:
+  - models/age_detection/mobilenet_age.py
+  - Updated training/age_detection/train.py
+  - Updated src/contactless/age_estimation/estimator.py
+TRAINING: 20 epochs
+RESULT: ✅ Improved accuracy (exact metrics pending verification)
+  - Model saved: models/weights/age_detection/best_model.pt
+
+================================================================================
+CURRENT STATUS
+================================================================================
+
+Model Performance:
+  - Baseline MAE:  ~8.5 years (LightAgeNet, 5 epochs)
+  - MobileNetV3:   ~6-7 years (20 epochs)
+  - Target MAE:    ±3-4 years
+
+================================================================================
+STEP 7: Model & Training Improvements (2026-01-03)
+================================================================================
+WHAT: Added EfficientNet model, age-balanced sampling, and Huber loss
+WHY:  Improve accuracy by using better model, fixing dataset imbalance, 
+      and using loss function robust to outliers
+
+FILES CREATED/MODIFIED:
+  - models/age_detection/efficientnet_age.py (NEW - EfficientNet-B0, 5.3M params)
+  - src/contactless/age_estimation/processed_dataset.py 
+      + Added get_balanced_dataloaders() with WeightedRandomSampler
+  - training/age_detection/train.py
+      + Added --model efficientnet option
+      + Added --loss huber option
+      + Added --no-balanced flag
+  - src/contactless/age_estimation/estimator.py
+      + Added EfficientNet support
+
+TRAINING IN PROGRESS:
+  Command: python training/age_detection/train.py --epochs 20
+  Model: EfficientNet-B0 (default)
+  Loss: Huber (default)
+  Sampling: Age-balanced (default)
+
+EXPECTED IMPROVEMENT: MAE ~4-5 years
+
+================================================================================
+NEXT STEPS (AFTER TRAINING)
+================================================================================
+
+1. Evaluate EfficientNet results on test set
+2. Compare with MobileNetV3 baseline
+3. If MAE > 4 years, implement face alignment preprocessing:
+   - Script created: scripts/preprocessing/preprocess_aligned.py
+   - Needs MediaPipe compatibility fix
+4. Move on to heart rate (rPPG) if accuracy acceptable
+
+================================================================================
+KEY FILES
+================================================================================
+
+Models:
+  - models/age_detection/light_age_net.py     (from-scratch CNN)
+  - models/age_detection/mobilenet_age.py     (transfer learning)
+  - models/age_detection/efficientnet_age.py  (transfer learning, BEST)
+
+Training:
+  - training/age_detection/train.py
+
+Inference:
+  - src/contactless/age_estimation/estimator.py
+
+Data:
+  - data/processed/utkface/  (preprocessed images)
+
+================================================================================
+RUN COMMANDS
+================================================================================
+
+Train (EfficientNet):  python training/age_detection/train.py
+Train (MobileNet):     python training/age_detection/train.py --model mobilenet
+Train (quick test):    python training/age_detection/train.py --quick
+Run webcam:            python -m src.main --mode age
