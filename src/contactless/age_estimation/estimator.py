@@ -29,6 +29,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from models.age_detection.light_age_net import LightAgeNet, LightAgeNetV2
+from models.age_detection.mobilenet_age import MobileNetV3Age
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class AgeEstimator:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        model_type: str = "light",
+        model_type: str = "mobilenet",  # Default to mobilenet for best accuracy
         use_normalization: bool = False,  # Set True for ImageNet normalization
         device: str = "cpu"
     ):
@@ -82,18 +83,21 @@ class AgeEstimator:
         
         Args:
             model_path: Path to trained weights (.pt file)
-            model_type: "light" or "v2"
+            model_type: "light", "v2", or "mobilenet"
             use_normalization: Whether to apply ImageNet normalization
             device: Device for inference ("cpu" or "cuda")
         """
         self.device = torch.device(device)
         self.use_normalization = use_normalization
+        self.model_type = model_type
         
         # Create model
         if model_type == "light":
             self.model = LightAgeNet()
         elif model_type == "v2":
             self.model = LightAgeNetV2()
+        elif model_type == "mobilenet":
+            self.model = MobileNetV3Age(pretrained=False)  # Don't need ImageNet weights for inference
         else:
             raise ValueError(f"Unknown model type: {model_type}")
         
