@@ -289,3 +289,107 @@ def get_processed_dataloaders(
                 f"Val: {len(val_loader)}, Test: {len(test_loader)}")
     
     return train_loader, val_loader, test_loader
+
+
+def get_balanced_dataloaders(
+    processed_dir: str = "data/processed/utkface",
+    batch_size: int = 32,
+    num_workers: int = 0,
+    augment_train: bool = True
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Create data loaders with age-balanced sampling for training.
+    
+    Uses WeightedRandomSampler to give equal probability to all age bins,
+    fixing the dataset imbalance (too many 20-30 year olds).
+    
+    Args:
+        processed_dir: Path to processed data directory
+        batch_size: Batch size for all loaders
+        num_workers: Number of workers for data loading
+        augment_train: Whether to apply augmentation
+    
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
+    """
+    from torch.utils.data import WeightedRandomSampler
+    
+    train_dataset = ProcessedUTKFaceDataset(
+        processed_dir=processed_dir,
+        split='train',
+        augment=augment_train
+    )
+    
+    val_dataset = ProcessedUTKFaceDataset(
+        processed_dir=processed_dir,
+        split='val',
+        augment=False
+    )
+    
+    test_dataset = ProcessedUTKFaceDataset(
+        processed_dir=processed_dir,
+        split='test',
+        augment=False
+    )
+    
+    # Calculate sample weights based on age bins
+    # Age bins: [0-10, 10-20, 20-30, ..., 90-100]
+    age_bins = {}
+    for sample in train_dataset.samples:
+        age_bin = sample['age'] // 10
+        age_bins[age_bin] = age_bins.get(age_bin, 0) + 1
+    
+    # Calculate weight for each bin (inverse frequency)
+    total_samples = len(train_dataset.samples)
+    bin_weights = {
+        bin_id: total_samples / count 
+        for bin_id, count in age_bins.items()
+    }
+    
+    # Assign weight to each sample
+    sample_weights = []
+    for sample in train_dataset.samples:
+        age_bin = sample['age'] // 10
+        sample_weights.append(bin_weights[age_bin])
+    
+    # Create sampler
+    sampler = WeightedRandomSampler(
+        weights=sample_weights,
+        num_samples=len(sample_weights),
+        replacement=True
+    )
+    
+    # Log rebalancing info
+    logger.info("Age-balanced sampling enabled:")
+    for bin_id in sorted(age_bins.keys()):
+        count = age_bins[bin_id]
+        weight = bin_weights[bin_id]
+        logger.info(f"  Age {bin_id*10}-{(bin_id+1)*10}: {count:5} samples, weight: {weight:.2f}")
+    
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,  # Use weighted sampler instead of shuffle
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    logger.info(f"Created balanced loaders - Train: {len(train_loader)} batches")
+    
+    return train_loader, val_loader, test_loader

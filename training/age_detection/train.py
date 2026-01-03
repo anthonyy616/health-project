@@ -40,9 +40,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from models.age_detection.light_age_net import LightAgeNet, LightAgeNetV2, create_model
 from models.age_detection.mobilenet_age import MobileNetV3Age, create_mobilenet_model
+from models.age_detection.efficientnet_age import EfficientNetAge, create_efficientnet_model
 from src.contactless.age_estimation.processed_dataset import (
     ProcessedUTKFaceDataset,
-    get_processed_dataloaders
+    get_processed_dataloaders,
+    get_balanced_dataloaders
 )
 
 
@@ -55,7 +57,13 @@ class TrainingConfig:
     num_workers: int = 0  # Windows compatibility
     
     # Model
-    model_type: str = "mobilenet"  # "light", "v2", or "mobilenet"
+    model_type: str = "efficientnet"  # "light", "v2", "mobilenet", or "efficientnet"
+    
+    # Data
+    balanced_sampling: bool = True  # Use age-balanced sampling
+    
+    # Loss function
+    loss_function: str = "huber"  # "l1", "mse", or "huber"
     
     # Training
     epochs: int = 50
@@ -267,12 +275,21 @@ def train(config: TrainingConfig) -> Dict:
     
     # Create data loaders
     print("\nLoading data...")
-    train_loader, val_loader, test_loader = get_processed_dataloaders(
-        processed_dir=config.data_dir,
-        batch_size=config.batch_size,
-        num_workers=config.num_workers,
-        augment_train=True
-    )
+    if config.balanced_sampling:
+        print("  Using age-balanced sampling")
+        train_loader, val_loader, test_loader = get_balanced_dataloaders(
+            processed_dir=config.data_dir,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            augment_train=True
+        )
+    else:
+        train_loader, val_loader, test_loader = get_processed_dataloaders(
+            processed_dir=config.data_dir,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            augment_train=True
+        )
     print(f"  Train: {len(train_loader.dataset):,} samples ({len(train_loader)} batches)")
     print(f"  Val:   {len(val_loader.dataset):,} samples ({len(val_loader)} batches)")
     print(f"  Test:  {len(test_loader.dataset):,} samples ({len(test_loader)} batches)")
@@ -281,13 +298,23 @@ def train(config: TrainingConfig) -> Dict:
     print(f"\nCreating model: {config.model_type}")
     if config.model_type == "mobilenet":
         model = create_mobilenet_model(pretrained=True, freeze_backbone=False)
+    elif config.model_type == "efficientnet":
+        model = create_efficientnet_model(pretrained=True, freeze_backbone=False)
     else:
         model = create_model(config.model_type)
     model.to(device)
     print(f"  Parameters: {model.get_num_parameters():,}")
     
-    # Loss function (L1 = MAE, more robust to outliers)
-    criterion = nn.L1Loss()
+    # Loss function
+    print(f"  Loss function: {config.loss_function}")
+    if config.loss_function == "l1":
+        criterion = nn.L1Loss()
+    elif config.loss_function == "mse":
+        criterion = nn.MSELoss()
+    elif config.loss_function == "huber":
+        criterion = nn.HuberLoss(delta=5.0)  # Robust to outliers, delta=5 years
+    else:
+        raise ValueError(f"Unknown loss function: {config.loss_function}")
     
     # Optimizer
     optimizer = optim.AdamW(
@@ -446,9 +473,9 @@ def main():
     )
     parser.add_argument(
         '--model',
-        default='mobilenet',
-        choices=['light', 'v2', 'mobilenet'],
-        help='Model type (mobilenet uses pretrained weights)'
+        default='efficientnet',
+        choices=['light', 'v2', 'mobilenet', 'efficientnet'],
+        help='Model type (efficientnet recommended for best accuracy)'
     )
     parser.add_argument(
         '--epochs',
@@ -469,6 +496,17 @@ def main():
         help='Learning rate'
     )
     parser.add_argument(
+        '--loss',
+        default='huber',
+        choices=['l1', 'mse', 'huber'],
+        help='Loss function (huber is robust to outliers)'
+    )
+    parser.add_argument(
+        '--no-balanced',
+        action='store_true',
+        help='Disable age-balanced sampling'
+    )
+    parser.add_argument(
         '--quick',
         action='store_true',
         help='Quick test run (5 epochs)'
@@ -481,7 +519,9 @@ def main():
         model_type=args.model,
         epochs=5 if args.quick else args.epochs,
         batch_size=args.batch_size,
-        learning_rate=args.lr
+        learning_rate=args.lr,
+        loss_function=args.loss,
+        balanced_sampling=not args.no_balanced
     )
     
     train(config)
