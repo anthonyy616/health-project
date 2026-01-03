@@ -112,27 +112,28 @@ COMPLETED:
   ✅ Face detection module (src/contactless/face_detection/)
   ✅ Video overlay with metrics panel
   ✅ UTKFace dataset downloaded (66,966 images via Kaggle CLI)
-  ✅ Raw dataset loader (src/contactless/age_estimation/dataset.py)
-  ✅ Memory-efficient preprocessing script (scripts/preprocess_utkface.py)
-  ✅ Preprocessed data created (data/processed/utkface/)
-      - Train: 46,840 images (70%)
-      - Val:   10,035 images (15%)
-      - Test:  10,043 images (15%)
-      - Image size: 224x224
-  ✅ Processed dataset loader (src/contactless/age_estimation/processed_dataset.py)
-  ✅ Test suite (tests/test_age_dataset.py) - ALL TESTS PASSING
+  ✅ Preprocessed data (46,840 train / 10,035 val / 10,043 test @ 224x224)
+  ✅ Age estimation CNN model (models/age_detection/light_age_net.py)
+      - LightAgeNet: 1.6M parameters
+      - Training: 5 epochs, 212 minutes on CPU
+      - Test MAE: 8.52 years
+      - Within ±10 years: 67.9%
+  ✅ Training pipeline (training/age_detection/train.py)
+  ✅ Inference wrapper (src/contactless/age_estimation/estimator.py)
+  ✅ Webcam integration with real-time age display
 
 NEXT STEPS:
-  1. 🔜 Build age estimation CNN model (src/contactless/age_estimation/model.py)
-  2. Create training script (scripts/train_age.py)
-  3. Train from-scratch model on preprocessed UTKFace
-  4. Compare with pretrained MobileNetV3-Small
-  5. Integrate age estimator into video overlay
+  1. 🔜 Heart rate via rPPG (request UBFC-rPPG dataset access)
+  2. Respiratory rate detection
+  3. Pupil detection/eye tracking
+  4. Compare age model with pretrained MobileNetV3-Small
+  5. Train more epochs for better accuracy (target: ±4 years)
 
 RUN COMMANDS:
+  Age Estimation:    python -m src.main --mode age         ← NEW!
   Face Detection:    python -m src.main --mode face-detect
   Camera Test:       python -m src.main --mode camera-test
-  Preprocess Data:   python scripts/preprocess_utkface.py
+  Train Age Model:   python training/age_detection/train.py
   Run Tests:         python tests/test_age_dataset.py
 
 
@@ -140,9 +141,9 @@ RUN COMMANDS:
 TARGET METRICS & ACCURACY
 ================================================================================
 
-| Metric              | Target       | Status       |
-|---------------------|--------------|--------------|
-| Age Estimation      | ±4 years     | Not Started  |
+| Metric              | Target       | Status           |
+|---------------------|--------------|------------------|
+| Age Estimation      | ±4 years     | ±8.52 yrs (67.9%)
 | Heart Rate (rPPG)   | ±5 BPM       | Not Started  |
 | Temperature         | ±1°C         | Pending HW   |
 | Respiratory Rate    | ±2 BPM       | Not Started  |

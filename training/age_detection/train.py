@@ -39,6 +39,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from models.age_detection.light_age_net import LightAgeNet, LightAgeNetV2, create_model
+from models.age_detection.mobilenet_age import MobileNetV3Age, create_mobilenet_model
 from src.contactless.age_estimation.processed_dataset import (
     ProcessedUTKFaceDataset,
     get_processed_dataloaders
@@ -54,7 +55,7 @@ class TrainingConfig:
     num_workers: int = 0  # Windows compatibility
     
     # Model
-    model_type: str = "light"  # "light" or "v2"
+    model_type: str = "mobilenet"  # "light", "v2", or "mobilenet"
     
     # Training
     epochs: int = 50
@@ -278,7 +279,10 @@ def train(config: TrainingConfig) -> Dict:
     
     # Create model
     print(f"\nCreating model: {config.model_type}")
-    model = create_model(config.model_type)
+    if config.model_type == "mobilenet":
+        model = create_mobilenet_model(pretrained=True, freeze_backbone=False)
+    else:
+        model = create_model(config.model_type)
     model.to(device)
     print(f"  Parameters: {model.get_num_parameters():,}")
     
@@ -442,9 +446,9 @@ def main():
     )
     parser.add_argument(
         '--model',
-        default='light',
-        choices=['light', 'v2'],
-        help='Model type'
+        default='mobilenet',
+        choices=['light', 'v2', 'mobilenet'],
+        help='Model type (mobilenet uses pretrained weights)'
     )
     parser.add_argument(
         '--epochs',
