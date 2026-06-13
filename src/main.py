@@ -96,7 +96,8 @@ def run_age_estimation(camera_id: int = None):
     # Load trained age estimator
     print("\nLoading age estimation model...")
     estimator = AgeEstimator(
-        model_path="models/weights/age_detection/best_model.pt"
+        model_path="models/weights/age_detection/best_model.pt",
+        model_type="mobilenet"
     )
     if estimator.is_loaded():
         print("✓ Age model loaded successfully!")
