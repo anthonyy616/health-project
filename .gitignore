@@ -100,3 +100,6 @@ personal.txt
 
 #Logs
 logs/
+.venv-312/
+*.task
+*.pt
