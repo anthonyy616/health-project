@@ -14,6 +14,7 @@ env/
 .idea/
 *.swp
 *.swo
+.agent/
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
@@ -103,3 +104,6 @@ logs/
 .venv-312/
 *.task
 *.pt
+
+#Backup
+*.bak

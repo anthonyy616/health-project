@@ -2,3 +2,15 @@
 
 Heart Rate
 UBFC-rPPG: https://www.kaggle.com/datasets/malekdinarito/ubfc-rppg-dataset
+
+
+    pure dataset:
+    Citations
+    If you consider using the data sets on this page, please reference the following:
+
+    Stricker, R., Müller, S., Gross, H.-M.
+    Non-contact Video-based Pulse Rate Measurement on a Mobile Service Robot
+    in: Proc. 23st IEEE Int. Symposium on Robot and Human Interactive Communication (Ro-Man 2014), Edinburgh, Scotland, UK, pp. 1056 - 1062, IEEE 2014
+
+    Download
+    Please contact nikr-datasets-request@tu-ilmenau.de for requests
