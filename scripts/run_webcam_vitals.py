@@ -36,7 +36,8 @@ def parse_args():
     parser.add_argument("--fps", type=int, default=30, help="Expected camera FPS (default: 30)")
     parser.add_argument("--no-age", action="store_true", help="Disable age estimation for speed")
     parser.add_argument("--threading", action="store_true", help="Use thread pool for parallel module execution")
-    parser.add_argument("--save-log", type=str, default=None, help="Path to save JSON log of readings")
+    parser.add_argument("--save-log", nargs="?", const="auto", default=None,
+                        help="Save JSON log of readings. Provide a path, or omit for auto-generated filename.")
     return parser.parse_args()
 
 
@@ -214,7 +215,12 @@ def main():
         # Save log if requested
         if args.save_log and readings:
             import json
-            log_path = Path(args.save_log)
+            from datetime import datetime
+            if args.save_log == "auto":
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_path = Path(f"logs/webcam_vitals_{timestamp}.json")
+            else:
+                log_path = Path(args.save_log)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(log_path, 'w') as f:
                 json.dump(readings, f, indent=2)
