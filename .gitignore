@@ -65,6 +65,7 @@ desktop.ini
 
 # Test outputs
 test_outputs/
+test_logs/
 recordings/
 
 # Compiled C++/ESP32
