@@ -13,6 +13,7 @@ Usage:
     from evaluation.metrics import compute_mae, compute_rmse, compute_bland_altman
     from evaluation.plots import plot_predicted_vs_ground_truth, plot_bland_altman
     from evaluation.datasets import UBFCRPPGLoader
+    from evaluation.reports import generate_report, save_report
 """
 
 from evaluation.metrics import (
@@ -26,6 +27,7 @@ from evaluation.metrics import (
     compute_latency_stats,
     HREvaluationResult,
 )
+from evaluation.reports import generate_report, save_report, EvaluationReport
 
 __all__ = [
     "compute_mae",
@@ -37,4 +39,7 @@ __all__ = [
     "compute_failure_rate",
     "compute_latency_stats",
     "HREvaluationResult",
+    "generate_report",
+    "save_report",
+    "EvaluationReport",
 ]

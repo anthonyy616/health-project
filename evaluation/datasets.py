@@ -109,6 +109,11 @@ class UBFCRPPGLoader:
         """
         Load ground truth BPM or PPG waveform.
 
+        UBFC-rPPG ground_truth.txt format (3 rows):
+            Row 0: PPG waveform (one sample per frame)
+            Row 1: Heart rate in BPM (one value per frame or per second)
+            Row 2: Timestamps
+
         Returns:
             (bpm_values, ppg_waveform) — at least one will be non-None
         """
@@ -123,22 +128,46 @@ class UBFCRPPGLoader:
             logger.warning(f"Failed to load ground truth from {gt_path}: {e}")
             return None, None
 
-        if self.ground_truth_format == "bpm" or (
-            self.ground_truth_format == "auto" and raw.ndim == 1 and len(raw) < 1000
-        ):
-            # One BPM value per line (or per second)
-            return raw, None
+        # --- Multi-row UBFC-rPPG format (3 rows: PPG, BPM, timestamps) ---
+        if raw.ndim == 2 and raw.shape[0] == 3:
+            ppg_waveform = raw[0].astype(np.float64)
+            bpm_values = raw[1].astype(np.float64)
+            logger.debug(
+                f"Loaded 3-row UBFC format from {gt_path}: "
+                f"PPG({len(ppg_waveform)}), BPM({len(bpm_values)})"
+            )
+            return bpm_values, ppg_waveform
 
-        if self.ground_truth_format == "ppg" or (
-            self.ground_truth_format == "auto" and (raw.ndim > 1 or len(raw) >= 1000)
-        ):
-            # Raw PPG waveform — compute BPM from peaks
+        # --- Multi-row with unknown row count: take row 0 as primary ---
+        if raw.ndim == 2 and raw.shape[0] > 3:
+            logger.warning(
+                f"Unexpected row count {raw.shape[0]} in {gt_path}; "
+                f"using row 0 as BPM"
+            )
+            return raw[0].astype(np.float64), None
+
+        # --- Explicit format overrides ---
+        if self.ground_truth_format == "bpm":
+            return raw.flatten(), None
+
+        if self.ground_truth_format == "ppg":
             ppg = raw.flatten().astype(np.float64)
             bpm_values = self._ppg_to_bpm(ppg, video_fps)
             return bpm_values, ppg
 
+        # --- Auto-detection for 1-D arrays ---
+        if raw.ndim == 1 and len(raw) < 1000:
+            # Short 1-D array: treat as BPM values
+            return raw, None
+
+        if raw.ndim == 1 and len(raw) >= 1000:
+            # Long 1-D array: treat as raw PPG waveform
+            ppg = raw.astype(np.float64)
+            bpm_values = self._ppg_to_bpm(ppg, video_fps)
+            return bpm_values, ppg
+
         # Fallback: treat as BPM
-        return raw, None
+        return raw.flatten(), None
 
     @staticmethod
     def _ppg_to_bpm(ppg: np.ndarray, fps: int) -> np.ndarray:
