@@ -139,32 +139,8 @@ class TestEstimator:
         print(f"✅ Callable interface works: age={age}, confidence={confidence:.2f}")
 
 
-class TestIntegration:
-    """Integration tests with dataset"""
-    
-    def test_model_with_real_data(self):
-        """Test model with real preprocessed data"""
-        from models.age_detection.light_age_net import LightAgeNet
-        from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
-        
-        # Load a sample from dataset
-        try:
-            dataset = ProcessedUTKFaceDataset(split='test')
-        except FileNotFoundError:
-            print("⚠ Skipping: Processed dataset not found")
-            return
-        
-        image, true_age = dataset[0]
-        
-        # Run through model
-        model = LightAgeNet()
-        model.eval()
-        
-        with torch.no_grad():
-            pred_age = model(image.unsqueeze(0)).item()
-        
-        print(f"✅ Model with real data: true_age={true_age}, pred_age={pred_age:.1f} "
-              f"(error={abs(pred_age - true_age):.1f})")
+# TestIntegration removed - test_model_with_real_data depends on image files
+# no longer on disk (deleted by user).
 
 
 def run_all_tests():

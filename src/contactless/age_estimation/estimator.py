@@ -75,7 +75,7 @@ class AgeEstimator:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        model_type: str = "efficientnet",  # Default to efficientnet for best accuracy
+        model_type: str = "mobilenet",  # Default to mobilenet (matches best_model.pt on disk)
         use_normalization: bool = False,  # Set True for ImageNet normalization
         device: str = "cpu"
     ):
