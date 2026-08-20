@@ -86,7 +86,7 @@ def evaluate_age_on_test_split(
     # Load test dataset
     try:
         from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
-        test_dataset = ProcessedUTKFaceDataset(split="test")
+        test_dataset = ProcessedUTKFaceDataset(processed_dir=data_dir, split="test")
     except Exception as e:
         logger.error(f"Failed to load test dataset: {e}")
         return {}
@@ -238,7 +238,8 @@ def main():
     parser = argparse.ArgumentParser(description="Age Estimation Evaluation Harness")
     parser.add_argument("--data-dir", default="data/processed/utkface")
     parser.add_argument("--model-type", default="mobilenet",
-                        choices=["mobilenet", "efficientnet", "lightnet"])
+                        choices=["light", "v2", "mobilenet", "efficientnet"],
+                        help="Model architecture: light (LightAgeNet), v2 (LightAgeNetV2), mobilenet (MobileNetV3), efficientnet (EfficientNetB0)")
     parser.add_argument("--model-path", default=None)
     parser.add_argument("--output-dir", default="results/age_evaluation")
     parser.add_argument("--batch-size", type=int, default=32)
