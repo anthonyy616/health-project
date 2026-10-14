@@ -205,6 +205,9 @@ def apply_freshness(
     now = now_utc_s if now_utc_s is not None else time.time()
     out: Dict[str, Measurement] = {}
     for metric, m in measurements.items():
+        if m is None:
+            out[metric] = None
+            continue
         ttl = policy.for_metric(metric)
         if m.status in (MeasurementStatus.VALID, MeasurementStatus.LOW_SIGNAL) \
                 and (now - m.acquired_at_utc_s) > ttl:
