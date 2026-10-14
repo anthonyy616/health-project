@@ -30,6 +30,39 @@ class SubjectData:
     ground_truth_bpm: Optional[np.ndarray]  # per-frame or per-second BPM
     ground_truth_ppg: Optional[np.ndarray]  # raw PPG waveform (if available)
     metadata: Dict = field(default_factory=dict)
+    # Per-frame acquisition timestamps from the video container (ms),
+    # captured while decoding (timestamp-aware handling, audit P0).
+    frame_timestamps_ms: Optional[np.ndarray] = None
+
+    @property
+    def effective_fps(self) -> float:
+        """Measured FPS from frame timestamps; falls back to container FPS."""
+        if self.frame_timestamps_ms is not None and len(self.frame_timestamps_ms) > 1:
+            diffs = np.diff(self.frame_timestamps_ms.astype(float))
+            positive = diffs[diffs > 0]
+            if len(positive) > 0:
+                return float(1000.0 / np.mean(positive))
+        return float(self.video_fps)
+
+    def validation_issues(self) -> List[str]:
+        """Structural consistency issues (ground truth vs video length, gaps)."""
+        issues: List[str] = []
+        n_frames = 0 if self.video_frames is None else len(self.video_frames)
+        if self.ground_truth_bpm is not None and len(self.ground_truth_bpm) != n_frames:
+            issues.append(
+                f"ground truth length {len(self.ground_truth_bpm)} != frame count {n_frames} "
+                "- alignment is positional; verify timestamps"
+            )
+        if self.frame_timestamps_ms is not None and len(self.frame_timestamps_ms) > 1:
+            diffs = np.diff(self.frame_timestamps_ms.astype(float))
+            if len(diffs):
+                huge_gap = float(np.median(diffs)) * 4.0
+                dropouts = int(np.sum(diffs > huge_gap))
+                if dropouts:
+                    issues.append(f"{dropouts} frame timestamp gaps > 4x median interval")
+        if n_frames == 0:
+            issues.append("no video frames")
+        return issues
 
 
 class UBFCRPPGLoader:
@@ -246,11 +279,12 @@ class UBFCRPPGLoader:
             return None
 
         if load_video:
-            video_frames, video_fps = self._load_video(video_path)
+            video_frames, video_fps, frame_ts = self._load_video(video_path)
             if video_frames is None:
                 return None
         else:
             video_fps = self._probe_fps(video_path)
+            frame_ts = None
 
         # Load ground truth
         gt_bpm, gt_ppg = self._load_ground_truth(subject_dir, video_fps)
@@ -262,7 +296,12 @@ class UBFCRPPGLoader:
             ground_truth_bpm=gt_bpm,
             ground_truth_ppg=gt_ppg,
             metadata={"video_path": str(video_path)},
+            frame_timestamps_ms=frame_ts,
         )
+
+        issues = subject_data.validation_issues()
+        for issue in issues:
+            logger.warning(f"Subject {subject_id}: {issue}")
 
         self._subject_cache[subject_id] = subject_data
         return subject_data
@@ -277,29 +316,51 @@ class UBFCRPPGLoader:
         logger.info(f"Loaded {len(subjects)} subjects from UBFC-rPPG")
         return subjects
 
-    def _load_video(self, video_path: Path) -> Tuple[Optional[np.ndarray], int]:
-        """Decode all frames from a video file."""
+    def _load_video(self, video_path: Path) -> Tuple[Optional[np.ndarray], int, Optional[np.ndarray]]:
+        """Decode all frames from a video file, capturing per-frame timestamps."""
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             logger.error(f"Failed to open video: {video_path}")
-            return None, 30
+            return None, 30, None
 
         fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
         frames = []
+        timestamps_ms = []
 
         while True:
+            ts = cap.get(cv2.CAP_PROP_POS_MSEC)
             ret, frame = cap.read()
             if not ret:
                 break
             frames.append(frame)
+            timestamps_ms.append(float(ts))
 
         cap.release()
 
         if len(frames) == 0:
             logger.error(f"No frames read from {video_path}")
-            return None, fps
+            return None, fps, None
 
-        return np.array(frames), fps
+        ts_array = np.asarray(timestamps_ms, dtype=float)
+        if not np.all(np.isfinite(ts_array)):
+            ts_array = np.arange(len(frames), dtype=float) * (1000.0 / fps)
+        elif not np.all(np.diff(ts_array) > 0):
+            # Container timestamp quirks (e.g. MJPG/AVI reports 0 ms for the
+            # first frames, some files report equal stamps): sanitize by
+            # rebuilding non-monotonic stamps from the median positive
+            # interval, preserving the recorded cadence where it is usable.
+            diffs = np.diff(ts_array)
+            positive = diffs[diffs > 0]
+            interval = float(np.median(positive)) if len(positive) else (1000.0 / fps)
+            sanitized = [ts_array[0]]
+            for i in range(1, len(ts_array)):
+                prev_last = sanitized[-1]
+                if ts_array[i] > prev_last:
+                    sanitized.append(ts_array[i])
+                else:
+                    sanitized.append(prev_last + interval)
+            ts_array = np.asarray(sanitized, dtype=float)
+        return np.array(frames), fps, ts_array
 
     def _probe_fps(self, video_path: Path) -> int:
         """Get FPS from a video without loading all frames."""

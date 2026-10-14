@@ -73,7 +73,8 @@ class PosExtractor:
         self.fallback_windows = 0
 
     def extract_bpm_series(
-        self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1
+        self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1,
+        valid_mask: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Extract BPM values from an RGB trace using a sliding window.
@@ -83,12 +84,15 @@ class PosExtractor:
             fps: frames per second
             window_sec: analysis window in seconds
             step_sec: step size in seconds
+            valid_mask: optional boolean array over frames; windows whose
+                valid fraction is below the harness threshold are skipped
+                (NaN) rather than scored on partially invalid data.
 
         Returns:
             (bpm_values, confidences) arrays
         """
-        window_size = fps * window_sec
-        step_size = fps * step_sec
+        window_size = int(round(fps * window_sec))
+        step_size = max(int(round(fps * step_sec)), 1)
 
         if len(rgb_trace) < window_size:
             return np.array([]), np.array([])
@@ -98,6 +102,12 @@ class PosExtractor:
 
         for start in range(0, len(rgb_trace) - window_size + 1, step_size):
             segment = rgb_trace[start : start + window_size]
+            if valid_mask is not None and not _window_ok(valid_mask[start : start + window_size]):
+                # Audit fix: frames lacking a face/ROI are missing data, not
+                # zeros; windows dominated by them must not be scored.
+                bpm_values.append(np.nan)
+                confidences.append(0.0)
+                continue
             try:
                 normalized = self.normalize(segment.astype(np.float32))
                 pulse, fallback_used = self.pos(normalized)
@@ -118,12 +128,13 @@ class GreenExtractor:
     """GREEN baseline — normalized green channel."""
 
     def extract_bpm_series(
-        self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1
+        self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1,
+        valid_mask: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         import scipy.signal
 
-        window_size = fps * window_sec
-        step_size = fps * step_sec
+        window_size = int(round(fps * window_sec))
+        step_size = max(int(round(fps * step_sec)), 1)
 
         if len(rgb_trace) < window_size:
             return np.array([]), np.array([])
@@ -133,6 +144,10 @@ class GreenExtractor:
 
         for start in range(0, len(rgb_trace) - window_size + 1, step_size):
             segment = rgb_trace[start : start + window_size]
+            if valid_mask is not None and not _window_ok(valid_mask[start : start + window_size]):
+                bpm_values.append(np.nan)
+                confidences.append(0.0)
+                continue
             try:
                 green = segment[:, 1].astype(np.float64)
                 # DC normalization
@@ -181,12 +196,13 @@ class ChromExtractor:
     """CHROM (Chrominance) rPPG method — De Haan & Jeanne 2013."""
 
     def extract_bpm_series(
-        self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1
+        self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1,
+        valid_mask: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         import scipy.signal
 
-        window_size = fps * window_sec
-        step_size = fps * step_sec
+        window_size = int(round(fps * window_sec))
+        step_size = max(int(round(fps * step_sec)), 1)
 
         if len(rgb_trace) < window_size:
             return np.array([]), np.array([])
@@ -200,6 +216,10 @@ class ChromExtractor:
 
         for start in range(0, len(rgb_trace) - window_size + 1, step_size):
             segment = rgb_trace[start : start + window_size]
+            if valid_mask is not None and not _window_ok(valid_mask[start : start + window_size]):
+                bpm_values.append(np.nan)
+                confidences.append(0.0)
+                continue
             try:
                 # DC normalization
                 means = np.mean(segment, axis=0)
@@ -268,12 +288,29 @@ METHOD_EXTRACTORS = {
 }
 
 
-def _extract_rgb_trace(video_frames: np.ndarray, face_roi_func=None) -> np.ndarray:
+# A window is scoreable when at least 90% of its frames come from a valid
+# ROI (face present). Below that, the window is treated as missing data.
+WINDOW_VALID_FRACTION = 0.9
+
+
+def _window_ok(mask: np.ndarray) -> bool:
+    return bool(np.mean(mask.astype(np.float64)) >= WINDOW_VALID_FRACTION)
+
+
+def _extract_rgb_trace(
+    video_frames: np.ndarray, face_roi_func=None
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Extract mean RGB from each frame.
+    Extract mean RGB from each frame, plus a per-frame validity mask.
 
     If face_roi_func is provided, it's called with each frame to get a crop.
-    Otherwise, uses the center 30% of each frame as a rough forehead proxy.
+    Otherwise, uses the center 30% of each frame as a rough forehead proxy
+    (labeled channel: evaluation runs without the real detector must be
+    disclosed rather than presented as detector-based results).
+
+    Audit fix: frames where no ROI is obtainable produce an INVALID sample
+    (tracked in the mask), not a zero - zero RGB values previously flowed
+    into windows and biased window scores toward failure or bias.
 
     IMPORTANT for matched-method comparison: all three HR methods (POS,
     CHROM, GREEN) must use the SAME RGB trace, same ROI, same window/stride,
@@ -283,28 +320,37 @@ def _extract_rgb_trace(video_frames: np.ndarray, face_roi_func=None) -> np.ndarr
     """
     n_frames = len(video_frames)
     rgb_trace = np.zeros((n_frames, 3), dtype=np.float64)
+    valid_mask = np.zeros(n_frames, dtype=bool)
 
     for i, frame in enumerate(video_frames):
         if face_roi_func is not None:
             roi = face_roi_func(frame)
-            if roi is not None and roi.size > 0:
-                mean_bgr = np.mean(roi.reshape(-1, 3).astype(np.float64), axis=0)
-                rgb_trace[i] = mean_bgr[::-1]  # BGR -> RGB
-            else:
-                rgb_trace[i] = [0, 0, 0]
         else:
             # Rough center crop as forehead proxy
             h, w = frame.shape[:2]
             y1, y2 = int(h * 0.15), int(h * 0.45)
             x1, x2 = int(w * 0.3), int(w * 0.7)
             roi = frame[y1:y2, x1:x2]
-            if roi.size > 0:
-                mean_bgr = np.mean(roi.reshape(-1, 3).astype(np.float64), axis=0)
-                rgb_trace[i] = mean_bgr[::-1]
-            else:
-                rgb_trace[i] = [0, 0, 0]
+        if roi is not None and roi.size > 0:
+            mean_bgr = np.mean(roi.reshape(-1, 3).astype(np.float64), axis=0)
+            rgb_trace[i] = mean_bgr[::-1]  # BGR -> RGB
+            # A usable ROI must not be black (no saturation/illumination edge)
+            valid_mask[i] = bool(np.all(rgb_trace[i] > 1.0))
+        else:
+            rgb_trace[i] = [np.nan, np.nan, np.nan]
+            valid_mask[i] = False
 
-    return rgb_trace
+    # Fill invalid samples with the last valid mean (DC carry-through) so
+    # downstream bandpass does not see NaN - validity still handled by mask.
+    for c in range(3):
+        channel = rgb_trace[:, c]
+        ok = valid_mask
+        if np.any(ok):
+            channel[~ok] = np.interp(
+                np.arange(n_frames)[~ok], np.arange(n_frames)[ok], channel[ok]
+            )
+
+    return rgb_trace, valid_mask
 
 
 def evaluate_hr_on_dataset(
@@ -394,22 +440,29 @@ def evaluate_hr_on_dataset(
             logger.warning(f"Skipping {subject_id}: no ground truth")
             continue
 
-        # Extract RGB trace
-        rgb_trace = _extract_rgb_trace(subject_data.video_frames, face_roi_func)
+        # Extract RGB trace + per-frame validity (face obtainable per frame)
+        rgb_trace, valid_mask = _extract_rgb_trace(subject_data.video_frames, face_roi_func)
 
-        # Skip subjects with too many zero frames
-        zero_frames = np.sum(np.all(rgb_trace == 0, axis=1))
-        if zero_frames > len(rgb_trace) * 0.3:
-            logger.warning(f"Skipping {subject_id}: {zero_frames}/{len(rgb_trace)} zero frames")
+        # Disclose invalid-frame fraction; fully unusable subjects are skipped
+        invalid_frac = float(np.mean(~valid_mask))
+        if invalid_frac > 0.5:
+            logger.warning(
+                f"Skipping {subject_id}: {invalid_frac:.0%} frames lack a usable ROI"
+            )
             continue
 
-        fps = subject_data.video_fps
+        fps = subject_data.effective_fps
         gt_bpm = subject_data.ground_truth_bpm
+
+        per_subject_pred = {m: [] for m in extractors}
+        per_subject_gt = {m: [] for m in extractors}
 
         # Evaluate each method
         for method_name, extractor in extractors.items():
             start_time = time.perf_counter()
-            pred_bpm, pred_conf = extractor.extract_bpm_series(rgb_trace, fps)
+            pred_bpm, pred_conf = extractor.extract_bpm_series(
+                rgb_trace, fps, valid_mask=valid_mask
+            )
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             if len(pred_bpm) == 0 or len(gt_bpm) == 0:
@@ -432,9 +485,12 @@ def evaluate_hr_on_dataset(
             all_results[method_name]["subject_ids"].extend(
                 [subject_id] * int(np.sum(valid))
             )
+            per_subject_pred[method_name].extend(pred_aligned[valid].tolist())
+            per_subject_gt[method_name].extend(gt_aligned[valid].tolist())
 
     # Compute per-method evaluation results
     evaluation_results = {}
+    per_subject_metrics: Dict[str, List[dict]] = {m: [] for m in methods}
 
     for method_name in methods:
         results = all_results[method_name]
@@ -448,6 +504,23 @@ def evaluate_hr_on_dataset(
 
         eval_result = evaluate_hr_method(predicted, ground_truth, method_name)
         evaluation_results[method_name] = eval_result
+
+        # Subject-macro metrics: per-subject MAE then mean across subjects
+        # (prevents windows of a few subjects dominating pooled numbers).
+        subjects = all_results[method_name]["subject_ids"]
+        for subj in sorted(set(subjects)):
+            idx = [i for i, s in enumerate(subjects) if s == subj]
+            if len(idx) < 2:
+                continue
+            s_pred = predicted[idx]
+            s_gt = ground_truth[idx]
+            per_subject_metrics[method_name].append({
+                "subject_id": subj,
+                "n_windows": len(idx),
+                "mae": float(np.mean(np.abs(s_pred - s_gt))),
+                "rmse": float(np.sqrt(np.mean((s_pred - s_gt) ** 2))),
+                "bias": float(np.mean(s_pred - s_gt)),
+            })
 
         # Generate plots
         plot_predicted_vs_ground_truth(
@@ -526,9 +599,16 @@ def evaluate_hr_on_dataset(
         if method_name == "pos" and method_name in extractors:
             fallback_count = getattr(extractors[method_name], "fallback_windows", 0)
 
+        subject_mae = [m["mae"] for m in per_subject_metrics.get(method_name, [])]
+
         report[method_name] = {
             "method": result.method,
             "pos_fallback_windows": fallback_count,
+            "subject_macro_mae": (
+                float(np.mean(subject_mae)) if subject_mae else None
+            ),
+            "n_subjects": len(subject_mae),
+            "per_subject": per_subject_metrics.get(method_name, []),
             "mae": result.mae,
             "rmse": result.rmse,
             "pearson_r": result.pearson_r,
