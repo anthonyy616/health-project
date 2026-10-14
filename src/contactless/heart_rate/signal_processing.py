@@ -74,11 +74,19 @@ def apply_pos_algorithm(normalized_rgb: np.ndarray) -> np.ndarray:
     
     # Compute pulse signal: P = S1 + alpha * S2
     P = S1 + alpha * S2
-    
+
+    # Robustness guard: on some RGB traces the two POS projections become
+    # almost linearly dependent, so the chosen alpha cancels the pulse rather
+    # than isolating it. In that case S1 (= G - B) still carries the temporal
+    # structure, so fall back to it instead of returning a near-zero signal.
+    if np.std(P) < 1e-6 and np.std(S1) >= 1e-6:
+        logger.debug("POS projection collapsed; falling back to S1 (G - B)")
+        P = S1
+
     # Normalize to zero mean and unit variance
     P_mean = np.mean(P)
     P_std = np.std(P)
-    
+
     if P_std < 1e-6:
         logger.warning("Pulse signal has near-zero standard deviation, returning as-is")
         return P
