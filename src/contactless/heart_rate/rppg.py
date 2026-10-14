@@ -15,6 +15,7 @@ from src.contactless.face_detection.detect import FaceResult
 from src.contactless.heart_rate.signal_processing import (
     normalize_rgb_trace,
     apply_pos_algorithm,
+    apply_pos_algorithm_detailed,
     bandpass_filter,
     extract_bpm_from_fft,
     compute_signal_quality
@@ -32,6 +33,11 @@ class HeartRateResult:
     buffer_fill: float
     inference_time_ms: float
     raw_rgb_trace: Optional[np.ndarray]
+    # True when the POS balanced projection collapsed and the documented
+    # G-B fallback produced this reading (see signal_processing module
+    # docstring). Additive field; consumers that do not know it are
+    # unaffected.
+    pos_fallback_used: bool = False
 
 
 class HeartRateDetector:
@@ -145,7 +151,7 @@ class HeartRateDetector:
         # Apply signal processing pipeline
         try:
             normalized_rgb = normalize_rgb_trace(rgb_trace)
-            pulse_signal = apply_pos_algorithm(normalized_rgb)
+            pulse_signal, pos_fallback_used = apply_pos_algorithm_detailed(normalized_rgb)
             filtered_signal = bandpass_filter(pulse_signal, self.fps)
             bpm, confidence = extract_bpm_from_fft(filtered_signal, self.fps)
         except Exception as e:
@@ -168,7 +174,8 @@ class HeartRateDetector:
             signal_quality=signal_quality,
             buffer_fill=buffer_fill,
             inference_time_ms=(time.perf_counter() - start_time) * 1000,
-            raw_rgb_trace=rgb_trace
+            raw_rgb_trace=rgb_trace,
+            pos_fallback_used=pos_fallback_used,
         )
         
         self._last_result = result

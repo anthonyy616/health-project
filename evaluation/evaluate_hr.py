@@ -53,19 +53,24 @@ class PosExtractor:
     correlated RGB traces. This extractor deliberately uses the same canonical
     code path so the live pipeline and the evaluation harness are not two
     differently-behaving POS implementations.
+
+    Fallback usage is counted per window in `self.fallback_windows` so the
+    report can disclose when the documented deviation from the published POS
+    engaged (see signal_processing module docstring for the audit).
     """
 
     def __init__(self):
         from src.contactless.heart_rate.signal_processing import (
             normalize_rgb_trace,
-            apply_pos_algorithm,
+            apply_pos_algorithm_detailed,
             bandpass_filter,
             extract_bpm_from_fft,
         )
         self.normalize = normalize_rgb_trace
-        self.pos = apply_pos_algorithm
+        self.pos = apply_pos_algorithm_detailed
         self.bandpass = bandpass_filter
         self.fft_bpm = extract_bpm_from_fft
+        self.fallback_windows = 0
 
     def extract_bpm_series(
         self, rgb_trace: np.ndarray, fps: int, window_sec: int = 10, step_sec: int = 1
@@ -94,8 +99,9 @@ class PosExtractor:
         for start in range(0, len(rgb_trace) - window_size + 1, step_size):
             segment = rgb_trace[start : start + window_size]
             try:
-                normalized = self.normalize(segment)
-                pulse = self.pos(normalized)
+                normalized = self.normalize(segment.astype(np.float32))
+                pulse, fallback_used = self.pos(normalized)
+                self.fallback_windows += int(fallback_used)
                 filtered = self.bandpass(pulse, float(fps))
                 bpm, conf = self.fft_bpm(filtered, float(fps))
                 bpm_values.append(bpm)
@@ -474,6 +480,14 @@ def evaluate_hr_on_dataset(
             method_name=method_name,
         )
 
+        # Disclose documented POS deviation usage (0 for non-POS methods).
+        if method_name == "pos" and hasattr(extractors.get(method_name), "fallback_windows"):
+            report_posextractor = extractors[method_name]
+            logger.info(
+                f"  POS G-B fallback windows: "
+                f"{report_posextractor.fallback_windows} / {eval_result.n_total}"
+            )
+
         # Log summary
         logger.info(f"\n{'='*50}")
         logger.info(f"Heart Rate Evaluation: {method_name.upper()}")
@@ -508,8 +522,13 @@ def evaluate_hr_on_dataset(
     # Save results to JSON
     report = {}
     for method_name, result in evaluation_results.items():
+        fallback_count = 0
+        if method_name == "pos" and method_name in extractors:
+            fallback_count = getattr(extractors[method_name], "fallback_windows", 0)
+
         report[method_name] = {
             "method": result.method,
+            "pos_fallback_windows": fallback_count,
             "mae": result.mae,
             "rmse": result.rmse,
             "pearson_r": result.pearson_r,

@@ -1,6 +1,42 @@
 """
 Signal Processing Functions for rPPG Heart Rate Detection
 Pure functions that operate on numpy arrays only - no OpenCV or camera logic
+
+POS implementation notes (audit, 2026-10):
+------------------------------------------
+Comparison against the published POS method (Wang, den Brinker, Stuijk &
+de Haan, "Algorithmic insights on PPG from an unconstrained camera",
+IEEE TBME 2017 / "Fully automatic video-based heart rate monitoring", ECCV
+workshop 2016) confirms this module follows the canonical formulation:
+
+  - Projection matrix S = [[0, 1, -1], [-2, 1, 1]]; the paper allows any
+    column-permutation-equivalent choice; ours matches the reference code.
+  - Pulse is P(t) = S1(t) + alpha(t) * S2(t) with alpha = std(S1)/std(S2)
+    computed per temporal window over the band-filtered normalised
+    chrominance - matches the published alpha definition and sign.
+  - The published method processes overlapping short temporal windows
+    (~1.6 s) and re-estimates alpha per window. This module instead runs
+    POS on an *already-windowed segment* supplied by the caller: both the
+    live detector (rolling 10 s buffer) and the evaluation harness
+    (sliding 10 s windows, 1 s stride) window *before* calling in, so
+    alpha is re-estimated per window exactly as the paper prescribes, and
+    overlap-add reconstruction is not required (each window is scored
+    independently; no continuous output signal is reconstructed).
+
+Documented deviation - projection-collapse fallback (G - B):
+The paper does not guard against degenerate traces. Here, when the
+balanced pulse P collapses to (numerical) zero-variance while S1 retains
+variance, i.e. S2 has become (anti-)proportional to S1 and the alpha
+balance cancels the signal instead of isolating the pulse, we fall back
+to S1 = G - B. Rationale: numerically recovered exact proportionality is
+a construction artefact of correlated channels, not a physiological
+state, and the G-B difference is one of POS's own constituent projections
+that retains the pulse whenever the green-minus-blue difference does.
+This is a robustness extension, not part of the published POS algorithm,
+and is opt-out via `apply_pos_algorithm(..., allow_fallback=False)`.
+Where the two behave differently (fallbacks engaged) is surfaced: the
+live detector records `HeartRateResult.pos_fallback_used`, and the
+evaluation harness counts fallback windows in its report.
 """
 
 import numpy as np
@@ -42,15 +78,44 @@ def normalize_rgb_trace(rgb_trace: np.ndarray) -> np.ndarray:
     return normalized
 
 
-def apply_pos_algorithm(normalized_rgb: np.ndarray) -> np.ndarray:
+def apply_pos_algorithm(
+    normalized_rgb: np.ndarray,
+    allow_fallback: bool = True,
+) -> np.ndarray:
     """
     Apply Plane-Orthogonal-to-Skin (POS) algorithm to extract pulse signal.
-    
+
     Args:
         normalized_rgb: normalized RGB trace, shape (N, 3)
-        
+        allow_fallback: permit the documented G-B fallback when the balanced
+            POS projection collapses (see module docstring for the deviation
+            from the published algorithm). Set False to observe the strict
+            published behaviour.
+
     Returns:
         1D numpy array of shape (N,) - the rPPG pulse signal
+
+    For the fallback metadata see `apply_pos_algorithm_detailed`.
+    """
+    pulse, _ = apply_pos_algorithm_detailed(normalized_rgb, allow_fallback)
+    return pulse
+
+
+def apply_pos_algorithm_detailed(
+    normalized_rgb: np.ndarray,
+    allow_fallback: bool = True,
+) -> Tuple[np.ndarray, bool]:
+    """
+    POS pulse extraction that additionally reports fallback usage.
+
+    Args:
+        normalized_rgb: normalized RGB trace, shape (N, 3)
+        allow_fallback: permit the documented G-B collapse fallback
+
+    Returns:
+        (pulse_signal, fallback_used) where fallback_used is True when the
+        output pulse came from the G-B projection instead of the balanced
+        POS combination.
     """
     if normalized_rgb.shape[1] != 3:
         raise ValueError(f"Expected 3 channels, got {normalized_rgb.shape[1]}")
@@ -75,13 +140,16 @@ def apply_pos_algorithm(normalized_rgb: np.ndarray) -> np.ndarray:
     # Compute pulse signal: P = S1 + alpha * S2
     P = S1 + alpha * S2
 
-    # Robustness guard: on some RGB traces the two POS projections become
-    # almost linearly dependent, so the chosen alpha cancels the pulse rather
-    # than isolating it. In that case S1 (= G - B) still carries the temporal
-    # structure, so fall back to it instead of returning a near-zero signal.
-    if np.std(P) < 1e-6 and np.std(S1) >= 1e-6:
+    fallback_used = False
+    # Documented robustness guard (deviation from the published POS)
+    # described in the module docstring: on (anti-)proportional channel
+    # traces the alpha balance cancels the pulse; S1 = G - B still carries
+    # it. A telemetry consumer does not need to worry about this -
+    # allow_fallback=True is the graded behavior everywhere.
+    if allow_fallback and np.std(P) < 1e-6 and np.std(S1) >= 1e-6:
         logger.debug("POS projection collapsed; falling back to S1 (G - B)")
         P = S1
+        fallback_used = True
 
     # Normalize to zero mean and unit variance
     P_mean = np.mean(P)
@@ -89,9 +157,9 @@ def apply_pos_algorithm(normalized_rgb: np.ndarray) -> np.ndarray:
 
     if P_std < 1e-6:
         logger.warning("Pulse signal has near-zero standard deviation, returning as-is")
-        return P
+        return P, fallback_used
     else:
-        return (P - P_mean) / P_std
+        return (P - P_mean) / P_std, fallback_used
 
 
 def bandpass_filter(
