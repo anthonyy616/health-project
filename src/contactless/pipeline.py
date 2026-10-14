@@ -127,6 +127,9 @@ class VitalsPipeline:
         self.use_threading = use_threading
 
         # Dependency injection with real defaults
+        # Track ownership: only close the face detector in close() when THIS
+        # pipeline constructed it (injected detectors belong to their owner).
+        self._owns_face_detector = face_detector is None
         self.face_detector = face_detector if face_detector is not None else FaceDetector()
 
         if age_estimator is not None:
@@ -240,9 +243,16 @@ class VitalsPipeline:
     def close(self) -> None:
         """
         Release resources: shuts down the threaded executor if one was
-        created. Call when the pipeline is no longer needed (e.g. on exit of
-        --mode all). Component lifecycle stays with their owners.
+        created, and closes the MediaPipe face detector when this pipeline
+        constructed it. Call when the pipeline is no longer needed (e.g. on
+        exit of --mode all). Injected components' lifecycle stays with
+        their owners.
         """
+        if self._owns_face_detector:
+            try:
+                self.face_detector.close()
+            except Exception as e:  # noqa: BLE001 - cleanup must not mask shutdown
+                logger.warning(f"FaceDetector cleanup failed during pipeline close: {e}")
         if self._executor is not None:
             self._executor.shutdown(wait=False)
             self._executor = None
