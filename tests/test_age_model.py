@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 import torch
 import numpy as np
+import pytest
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -107,10 +108,24 @@ class TestEstimator:
         print(f"✅ Preprocessing: {dummy_image.shape} -> {tuple(tensor.shape)}")
     
     def test_estimator_inference(self):
-        """Test full inference pipeline"""
+        """Test full inference pipeline with real trained weights.
+
+        Skips explicitly when the checkpoint is absent; when absent there is
+        nothing numeric to validate - random-weight inference is forbidden.
+        """
+        import pytest
+        from pathlib import Path
         from src.contactless.age_estimation.estimator import AgeEstimator
         
-        estimator = AgeEstimator(model_path=None)
+        weights = Path("models/weights/age_detection/best_model.pt")
+        if not weights.exists():
+            pytest.skip(
+                "Trained checkpoint best_model.pt not on disk - "
+                "inference cannot be validated without real trained weights."
+            )
+        
+        estimator = AgeEstimator(model_path=str(weights))
+        assert estimator.is_loaded(), "Weights exist but did not load"
         
         # Create dummy face image
         dummy_face = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
@@ -124,11 +139,35 @@ class TestEstimator:
         print(f"✅ Inference: age={result.age}, confidence={result.confidence:.2f}, "
               f"time={result.inference_time_ms:.1f}ms")
     
-    def test_estimator_callable(self):
-        """Test estimator can be called directly"""
+    def test_estimator_refuses_random_weight_inference(self):
+        """SAFETY (audit P0): with weights unavailable, estimate() must not
+        emit an age from random initialization - it raises instead."""
         from src.contactless.age_estimation.estimator import AgeEstimator
         
-        estimator = AgeEstimator(model_path=None)
+        missing = Path(PROJECT_ROOT) / "models/weights/age_detection/does_not_exist.pt"
+        estimator = AgeEstimator(model_path=str(missing))
+        assert not estimator.is_loaded()
+        
+        dummy_face = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+        with pytest.raises(RuntimeError, match="refusing to estimate age"):
+            estimator.estimate(dummy_face)
+        
+        print("✅ Unavailable-weights state refuses random-weight prediction")
+    
+    def test_estimator_callable(self):
+        """Test callable interface works with real trained weights."""
+        import pytest
+        from pathlib import Path
+        from src.contactless.age_estimation.estimator import AgeEstimator
+        
+        weights = Path("models/weights/age_detection/best_model.pt")
+        if not weights.exists():
+            pytest.skip(
+                "Trained checkpoint best_model.pt not on disk - "
+                "callable inference cannot be validated without trained weights."
+            )
+        
+        estimator = AgeEstimator(model_path=str(weights))
         dummy_face = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
         
         age, confidence = estimator(dummy_face)

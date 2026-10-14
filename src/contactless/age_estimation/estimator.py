@@ -116,8 +116,16 @@ class AgeEstimator:
             self.model.load_state_dict(state_dict)
             self.model_loaded = True
         else:
-            logger.warning(f"Model weights not found at {model_path}. Using random weights.")
+            # SAFETY (audit P0): weights are NOT silently replaced by a
+            # random-initialized model. Construction succeeds so callers can
+            # preflight availability, but estimate() refuses to emit
+            # numeric-looking ages that would come from random weights.
+            logger.warning(
+                f"Model weights not found at {model_path}. "
+                "Age estimation disabled (unavailable state)."
+            )
             self.model_loaded = False
+            self.missing_weights_path = model_path
         
         # Set to evaluation mode
         self.model.to(self.device)
@@ -175,6 +183,14 @@ class AgeEstimator:
         import time
         
         start_time = time.perf_counter()
+        
+        # SAFETY (audit P0): refuse to emit ages from untrained weights.
+        if not self.model_loaded:
+            raise RuntimeError(
+                "Age model weights unavailable: refusing to estimate age from "
+                f"random weights (missing: {getattr(self, 'missing_weights_path', 'default path')}). "
+                "Surface an explicit 'age unavailable' state instead of a number."
+            )
         
         # Preprocess
         tensor = self.preprocess(face_image)

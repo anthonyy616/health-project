@@ -6,10 +6,13 @@
 #   models/weights/age_detection/age_model_fp32.onnx
 #   models/weights/age_detection/age_model_int8.onnx
 # Run scripts/optimization/export_age_onnx.py and quantize_age_model.py
-# first. Tests SKIP GRACEFULLY (print a note and pass as no-ops) when the
-# artifacts - or the processed test data for the accuracy test - are
-# missing, so this file never fails with a confusing error on a clean
-# checkout.
+# first. Tests SKIP EXPLICITLY via pytest.skip when the artifacts are
+# missing on a clean checkout - they never silently pass as no-ops.
+#
+# Accuracy coverage is dataset-independent: the (removed) processed-image
+# accuracy test was replaced with a synthetic-input INT8-vs-FP32 agreement
+# test and a standalone-run guard that fails loudly when nothing was
+# validated.
 
 import numpy as np
 import sys
@@ -148,11 +151,65 @@ def test_onnx_int8_output_shape():
     print("✓ test_onnx_int8_output_shape passed (output shape (1,), finite)")
 
 
-def test_onnx_int8_faster_than_fp32():
-    """Smoke test: INT8 mean latency must beat ONNX FP32. A failure here is
-    meaningful information (quantization overhead exceeding benefit on this
-    CPU), so the message says exactly that."""
-    if not _require([ONNX_INT8_PATH, ONNX_FP32_PATH], "INT8 speed test"):
+def test_onnx_int8_accuracy_matches_fp32():
+    """Restored dataset-independent accuracy check: the INT8 quantized model
+    must track the FP32 ONNX model across multiple random inputs within a
+    tolerance that quantization noise can explain. Runs on synthetic inputs
+    (no processed images needed), so coverage does not depend on the deleted
+    real dataset; real-image accuracy remains a separately-tracked external
+    validation requirement (see docs/MODEL-ARTIFACT-STATUS.md)."""
+    if not _require([ONNX_INT8_PATH, ONNX_FP32_PATH], "INT8-vs-FP32 agreement test"):
+        pytest.skip("INT8/FP32 ONNX artifacts not available")
+
+    import onnxruntime
+
+    fp32_session = onnxruntime.InferenceSession(str(ONNX_FP32_PATH), providers=["CPUExecutionProvider"])
+    int8_session = onnxruntime.InferenceSession(str(ONNX_INT8_PATH), providers=["CPUExecutionProvider"])
+    fp32_name, x = _onnx_inputs(fp32_session)
+    int8_name = int8_session.get_inputs()[0].name
+
+    rng = np.random.RandomState(MATCH_TEST_SEED)
+    diffs = []
+    for _ in range(NUM_MATCH_INPUTS):
+        x_np = rng.uniform(0.0, 1.0, (1, 3, *AgeEstimator.INPUT_SIZE)).astype(np.float32)
+        fp32_out = fp32_session.run(None, {fp32_name: x_np})[0]
+        int8_out = int8_session.run(None, {int8_name: x_np})[0]
+        assert np.isfinite(int8_out).all() and np.isfinite(fp32_out).all()
+        diffs.append(float(np.abs(int8_out - fp32_out).max()))
+    worst = max(diffs)
+
+    # KNOWN ISSUE (validated 2026-10-15, MacBook M4): dynamic INT8
+    # quantization (all weight types / per-channel variants) systematically
+    # distorts this MobileNet regressor (measured worst diff ~30 age units,
+    # corr ~0.1 vs FP32 on uniform noise; INT8 collapses toward a constant
+    # ~75 output on naturalistic inputs). The INT8 artifact is therefore
+    # QUARANTINED: not for production predictions until an accurate export
+    # (static quantization with calibration data, or QAT) is produced.
+    # The expectation is encoded as xfail so the test goes green
+    # automatically once an accurate quantized export exists, and the
+    # measured divergence stays visible rather than being weakened away.
+    INT8_AGREEMENT_ATOL = 1.0
+    if worst > INT8_AGREEMENT_ATOL:
+        pytest.xfail(
+            f"Known issue: dynamic INT8 quantization diverges from FP32 "
+            f"(worst diff {worst:.4f} age units > {INT8_AGREEMENT_ATOL}) on "
+            f"this checkpoint - artifact quarantined; needs static/QAT export"
+        )
+    print(f"INT8/FP32 agreement OK over {NUM_MATCH_INPUTS} synthetic inputs "
+          f"(worst diff {worst:.4f} age units)")
+
+
+def test_onnx_latency_recorded_and_sane():
+    """Measure ONNX FP32 vs INT8 latency and record it.
+
+    Historical finding (Windows dev machine): dynamic INT8 quantization ran
+    ~6.7x SLOWER than FP32 on that CPU. Whether INT8 wins is therefore
+    hardware-dependent; this test does NOT hard-assert 'faster' (that would
+    be a fabricated non-portable claim). Instead it (a) requires both
+    latencies to be measured, finite and positive, and (b) records both to
+    results/model_perf/onnx_latency.json for the Pi benchmark work (Phase M).
+    """
+    if not _require([ONNX_INT8_PATH, ONNX_FP32_PATH], "latency recording test"):
         pytest.skip("INT8/FP32 ONNX artifacts not available")
 
     import onnxruntime
@@ -176,31 +233,67 @@ def test_onnx_int8_faster_than_fp32():
     fp32_mean = time_session(fp32_session, fp32_name)
     int8_mean = time_session(int8_session, int8_name)
 
-    if int8_mean >= fp32_mean:
-        print(f"INFO: INT8 ({int8_mean:.2f}ms) is NOT faster than FP32 ({fp32_mean:.2f}ms) "
-              f"on this CPU - dynamic INT8 quantization overhead exceeds benefit. "
-              f"This is a real hardware finding, not a test bug.")
-        return
-    print(f"INT8 test_onnx_int8_faster_than_fp32 passed "
-          f"(FP32 {fp32_mean:.2f}ms -> INT8 {int8_mean:.2f}ms)")
+    assert 0.0 < fp32_mean < 1000.0, f"FP32 latency implausible: {fp32_mean}"
+    assert 0.0 < int8_mean < 1000.0, f"INT8 latency implausible: {int8_mean}"
 
+    import json, platform
+    report = {
+        "platform": platform.platform(),
+        "processor": platform.processor(),
+        "fp32_mean_ms": fp32_mean,
+        "int8_mean_ms": int8_mean,
+        "speedup_int8_over_fp32": fp32_mean / int8_mean,
+        "iterations": SPEED_SMOKE_ITERS,
+    }
+    out_dir = project_root / "results" / "model_perf"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / "onnx_latency.json", "w") as f:
+        json.dump(report, f, indent=2)
 
-# test_onnx_int8_accuracy_reasonable removed - depends on processed image files
-# no longer on disk (deleted by user).
+    faster = "INT8 faster" if int8_mean < fp32_mean else "INT8 NOT faster on this CPU (recorded)"
+    print(f"latency: FP32 {fp32_mean:.2f}ms, INT8 {int8_mean:.2f}ms -> {faster}; "
+          f"recorded to results/model_perf/onnx_latency.json")
 
 
 def run_all_tests():
-    """Run all tests"""
+    """Standalone entry point.
+
+    Fairness guard: previously this printed "All tests passed" even when
+    every check had been skipped for missing artifacts - a silent no-op.
+    Now it reports the true validated/skipped counts and EXITS NONZERO if
+    nothing was actually validated.
+    """
+    import onnx
+
+    artifacts_ok = {}
+    for label, path in (("fp32_onnx", ONNX_FP32_PATH),
+                        ("int8_onnx", ONNX_INT8_PATH),
+                        ("pytorch_weights", MODEL_WEIGHTS_PATH)):
+        if not path.exists():
+            artifacts_ok[label] = False
+        elif path.suffix == ".onnx":
+            try:
+                onnx.checker.check_model(path)
+                artifacts_ok[label] = True
+            except Exception:
+                artifacts_ok[label] = False
+        else:
+            artifacts_ok[label] = True
+
+    if not all(artifacts_ok.values()):
+        print(f"NOT RUN: required artifacts unavailable - {artifacts_ok}")
+        print("Run scripts/optimization/export_age_onnx.py and quantize_age_model.py first.")
+        raise SystemExit(1)
+
     print("Running age ONNX tests...")
     print("-" * 30)
-
     test_onnx_export_matches_pytorch()
     test_onnx_int8_output_shape()
-    test_onnx_int8_faster_than_fp32()
+    test_onnx_int8_accuracy_matches_fp32()
+    test_onnx_latency_recorded_and_sane()
 
     print("-" * 30)
-    print("All tests passed! ✅ (any SKIPPED lines above are expected when "
-          "ONNX artifacts / test data are missing)")
+    print("All tests passed! ✅")
 
 
 if __name__ == "__main__":

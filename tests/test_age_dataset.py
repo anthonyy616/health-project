@@ -2,15 +2,20 @@
 Tests for UTKFace Dataset Loaders
 Run with: python -m pytest tests/test_age_dataset.py -v
 Or standalone: python tests/test_age_dataset.py
+
+Real-split tests skip explicitly (pytest.skip) when the processed UTKFace
+splits are missing. Dataset-INDEPENDENT behaviour (manifest parsing, image
+loading, normalization, metadata mapping, batching, augmentation gating)
+is covered by a deterministic synthetic processed-directory fixture so this
+coverage does not depend on the (deleted) real dataset.
 """
 
-import pytest
-import sys
+import json
 import numpy as np
+import pytest
 from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class TestProcessedDataset:
@@ -153,6 +158,148 @@ class TestAllSplits:
         dataset = ProcessedUTKFaceDataset(split='test')
         assert len(dataset) > 9000, f"Expected ~10k test samples, got {len(dataset)}"
         print(f"✅ Test split: {len(dataset)} samples")
+
+
+class TestSyntheticProcessedFixture:
+    """Dataset-independent coverage with a tiny deterministic processed dir.
+
+    Restores coverage removed when the real dataset was deleted: sample
+    shape, normalization, metadata retrieval, batch loading and
+    augmentation gating are all fixture-based now.
+    """
+
+    IMAGE_SIZE = (64, 64)
+    N_SAMPLES = 8
+
+    @pytest.fixture
+    def synthetic_processed_dir(self, tmp_path):
+        """Create a deterministic mini processed-UTKFace layout in tmp."""
+        import cv2
+
+        rng = np.random.RandomState(7)
+        ages = [1, 5, 18, 25, 34, 47, 62, 78]
+        genders = [0, 1] * 4
+        races = [0, 1, 2, 3, 4, 0, 1, 2]
+
+        root = tmp_path / "processed"
+        samples = []
+        for split in ("train", "val", "test"):
+            split_dir = root / split
+            split_dir.mkdir(parents=True)
+            split_samples = []
+            for i, age in enumerate(ages):
+                filename = f"synthetic_{i:03d}.png"
+                # Deterministic gradient image, not zeros: exercises
+                # normalization (mean is non-zero) and channel handling.
+                base = rng.randint(40, 200, size=(self.IMAGE_SIZE[0], self.IMAGE_SIZE[1], 3), dtype=np.uint8)
+                base = cv2.flip(base, 1 - split_dir.name.count("t") % 2)  # tiny split-dependent variation
+                cv2.imwrite(str(split_dir / filename), base)
+                split_samples.append({
+                    "filename": filename,
+                    "age": (age + i) % 80 if split == "train" else age,
+                    "gender": genders[i % len(genders)],
+                    "race": races[i % len(races)],
+                })
+            manifest = {
+                "samples": split_samples,
+                "image_size": list(self.IMAGE_SIZE),
+            }
+            with open(root / f"{split}_manifest.json", "w") as f:
+                json.dump(manifest, f)
+        return root
+
+    def _dataset(self, synthetic_processed_dir, split="train", **kwargs):
+        from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+        return ProcessedUTKFaceDataset(
+            processed_dir=str(synthetic_processed_dir), split=split, **kwargs
+        )
+
+    def test_fixtures_load_without_real_dataset(self, synthetic_processed_dir):
+        dataset = self._dataset(synthetic_processed_dir)
+        assert len(dataset) == self.N_SAMPLES
+
+    def test_sample_shape(self, synthetic_processed_dir):
+        """Samples are CHW tensors of the manifest image size."""
+        import torch
+        dataset = self._dataset(synthetic_processed_dir)
+        image, age = dataset[0]
+        assert isinstance(image, torch.Tensor)
+        assert image.shape == (3, self.IMAGE_SIZE[0], self.IMAGE_SIZE[1])
+        assert image.dtype == torch.float32
+        assert isinstance(age, int)
+
+    def test_image_normalization(self, synthetic_processed_dir):
+        """Normalization maps pixels to [0, 1] and is not degenerate."""
+        dataset = self._dataset(synthetic_processed_dir)
+        image, _ = dataset[3]
+        assert image.min() >= 0.0
+        assert image.max() <= 1.0
+        assert image.mean() > 0.05, "normalized image must not be all-zeros"
+
+    def test_normalization_disabled(self, synthetic_processed_dir):
+        dataset = self._dataset(synthetic_processed_dir, normalize=False)
+        image, _ = dataset[0]
+        # uint8 scale maintained (0-255 range as float)
+        assert image.max() > 1.0 and image.max() <= 255.0
+
+    def test_metadata_retrieval(self, synthetic_processed_dir):
+        """Metadata ids map back to the documented gender/race names."""
+        dataset = self._dataset(synthetic_processed_dir)
+        meta = dataset.get_sample_with_metadata(0)
+        assert set(meta) >= {"image", "age", "gender", "race", "filename", "gender_name", "race_name"}
+        assert meta["age"] == dataset.samples[0]["age"]
+        assert meta["gender_name"] in {"male", "female"}
+        assert meta["race_name"] in {"white", "black", "asian", "indian", "others"}
+        assert meta["filename"].endswith(".png")
+
+    def test_batch_loading(self, synthetic_processed_dir):
+        """DataLoader batches the synthetic fixture correctly."""
+        from src.contactless.age_estimation.processed_dataset import get_processed_dataloaders
+        train_loader, val_loader, test_loader = get_processed_dataloaders(
+            processed_dir=str(synthetic_processed_dir), batch_size=4, num_workers=0
+        )
+        assert len(train_loader) > 0 and len(val_loader) > 0 and len(test_loader) > 0
+        images, ages = next(iter(train_loader))
+        assert images.shape == (4, 3, self.IMAGE_SIZE[0], self.IMAGE_SIZE[1])
+        assert tuple(ages.shape) == (4,)
+
+    def test_augmentation_gated_to_train_split(self, synthetic_processed_dir):
+        """augment=True is forced off for val/test; on for train."""
+        train_ds = self._dataset(synthetic_processed_dir, "train", augment=True)
+        val_ds = self._dataset(synthetic_processed_dir, "val", augment=True)
+        assert train_ds.augment is True
+        assert val_ds.augment is False
+
+    def test_augmented_output_stays_uint8_rgb(self, synthetic_processed_dir):
+        import random
+        random.seed(0)
+        dataset = self._dataset(synthetic_processed_dir, "train", augment=True)
+        # Call __getitem__ until at least one augmented branch engages,
+        # then verify output is still finite uint8-range HWC image.
+        for i in range(self.N_SAMPLES):
+            image, age = dataset[i]
+            image_np, age_val = dataset.get_sample_with_metadata(i)["image"], age
+            del image_np
+        # Verify through the direct path with a forced augmentation call.
+        img = dataset.samples[0]
+        import cv2
+        raw = cv2.imread(str(dataset.split_dir / img["filename"]))
+        augmented = dataset._apply_augmentation(cv2.cvtColor(raw, cv2.COLOR_BGR2RGB))
+        assert augmented.dtype == np.uint8
+        assert augmented.shape[:2] == self.IMAGE_SIZE
+        assert 0 <= augmented.min() <= augmented.max() <= 255
+
+    def test_missing_manifest_raises_file_not_found(self, tmp_path):
+        from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+        with pytest.raises(FileNotFoundError, match="Manifest not found"):
+            ProcessedUTKFaceDataset(processed_dir=str(tmp_path / "nowhere"), split="train")
+
+    def test_missing_image_raises_io_error(self, synthetic_processed_dir):
+        dataset = self._dataset(synthetic_processed_dir)
+        # Corrupt the first sample's file so loading must fail loudly.
+        (dataset.split_dir / dataset.samples[0]["filename"]).unlink()
+        with pytest.raises(IOError, match="Failed to load image"):
+            dataset[0]
 
 
 class TestAugmentation:
