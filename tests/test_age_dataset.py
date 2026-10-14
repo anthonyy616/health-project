@@ -14,10 +14,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class TestProcessedDataset:
-    """Test cases for ProcessedUTKFaceDataset (primary dataset loader)"""
-    
+    """Test cases for ProcessedUTKFaceDataset (primary dataset loader)
+
+    These tests are valid only when the processed UTKFace splits are present
+    on disk. When they are missing, the suite skips explicitly rather than
+    failing with confusing FileNotFoundError / manifest errors.
+    """
+
     @pytest.fixture
-    def dataset(self):
+    def processed_dir_available(self):
+        """Skip the whole processed-dataset class when the processed data is absent."""
+        from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+
+        for split in ("train", "val", "test"):
+            manifest = Path("data/processed/utkface") / f"{split}_manifest.json"
+            if not manifest.exists():
+                pytest.skip(
+                    f"Processed UTKFace data not available: missing "
+                    f"data/processed/utkface/{split}_manifest.json. "
+                    f"Run scripts/preprocess_utkface.py first."
+                )
+        return True
+
+    @pytest.fixture
+    def dataset(self, processed_dir_available):
         """Create dataset instance for testing"""
         from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
         return ProcessedUTKFaceDataset(
@@ -61,8 +81,20 @@ class TestDataLoaders:
     
     def test_loader_creation(self):
         """Test that data loaders are created correctly"""
-        from src.contactless.age_estimation.processed_dataset import get_processed_dataloaders
-        
+        from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset, get_processed_dataloaders
+        import pytest
+        from pathlib import Path
+
+        # Validate the required split manifests exist before testing loaders
+        for split in ("train", "val", "test"):
+            manifest = Path("data/processed/utkface") / f"{split}_manifest.json"
+            if not manifest.exists():
+                pytest.skip(
+                    f"Processed UTKFace data not available: missing "
+                    f"data/processed/utkface/{split}_manifest.json. "
+                    f"Run scripts/preprocess_utkface.py first."
+                )
+
         train_loader, val_loader, test_loader = get_processed_dataloaders(
             processed_dir="data/processed/utkface",
             batch_size=8,
@@ -81,9 +113,25 @@ class TestDataLoaders:
 class TestAllSplits:
     """Test all data splits"""
     
+    def _require_splits(self):
+        """Skip when the processed splits are not present on disk."""
+        from pathlib import Path
+        import pytest
+
+        for split in ("train", "val", "test"):
+            manifest = Path("data/processed/utkface") / f"{split}_manifest.json"
+            if not manifest.exists():
+                pytest.skip(
+                    f"Processed UTKFace data not available: missing "
+                    f"data/processed/utkface/{split}_manifest.json. "
+                    f"Run scripts/preprocess_utkface.py first."
+                )
+
     def test_train_split(self):
         """Test train split loads correctly"""
         from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+        
+        self._require_splits()
         dataset = ProcessedUTKFaceDataset(split='train')
         assert len(dataset) > 40000, f"Expected ~46k train samples, got {len(dataset)}"
         print(f"✅ Train split: {len(dataset)} samples")
@@ -91,6 +139,8 @@ class TestAllSplits:
     def test_val_split(self):
         """Test validation split loads correctly"""
         from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+        
+        self._require_splits()
         dataset = ProcessedUTKFaceDataset(split='val')
         assert len(dataset) > 9000, f"Expected ~10k val samples, got {len(dataset)}"
         print(f"✅ Val split: {len(dataset)} samples")
@@ -98,6 +148,8 @@ class TestAllSplits:
     def test_test_split(self):
         """Test test split loads correctly"""
         from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+        
+        self._require_splits()
         dataset = ProcessedUTKFaceDataset(split='test')
         assert len(dataset) > 9000, f"Expected ~10k test samples, got {len(dataset)}"
         print(f"✅ Test split: {len(dataset)} samples")
@@ -110,7 +162,18 @@ class TestAugmentation:
     
     def test_augmentation_disabled_for_val(self):
         """Test that augmentation is disabled for val even if requested"""
+        from pathlib import Path
+        import pytest
         from src.contactless.age_estimation.processed_dataset import ProcessedUTKFaceDataset
+        
+        manifest = Path("data/processed/utkface") / "val_manifest.json"
+        if not manifest.exists():
+            pytest.skip(
+                "Processed UTKFace val split not available: missing "
+                "data/processed/utkface/val_manifest.json. "
+                "Run scripts/preprocess_utkface.py first."
+            )
+        
         dataset = ProcessedUTKFaceDataset(split='val', augment=True)
         
         # Augment should be forced to False for val

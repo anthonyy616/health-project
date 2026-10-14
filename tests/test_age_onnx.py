@@ -27,6 +27,8 @@ except Exception:
 
 import torch
 
+import pytest
+
 from models.age_detection.efficientnet_age import EfficientNetAge
 from models.age_detection.mobilenet_age import MobileNetV3Age
 from src.contactless.age_estimation.estimator import AgeEstimator
@@ -46,9 +48,25 @@ MATCH_TEST_SEED = 1234
 
 
 def _require(artifact_paths, what):
-    """Return True if all artifacts exist; otherwise print a skip note and
-    return False so the caller can no-op instead of failing confusingly."""
-    missing = [str(p) for p in artifact_paths if not p.exists()]
+    """Return True if all artifacts exist and are valid; otherwise print a
+    skip note and return False so the caller can no-op instead of failing
+    confusingly.
+
+    For ONNX files we also reject tiny LFS pointer stubs / corrupt protobuf
+    files here, because onnxruntime raises a hard InvalidProtobuf error
+    before the test can reach a clean skip path.
+    """
+    import onnx
+
+    missing = []
+    for p in artifact_paths:
+        if not p.exists():
+            missing.append(str(p))
+        elif p.suffix == ".onnx":
+            try:
+                onnx.checker.check_model(p)
+            except Exception as e:
+                missing.append(f"{p} (invalid onnx: {e})")
     if missing:
         print(f"SKIPPED: {what} - required artifact(s) not found: {missing}")
         print("         Run scripts/optimization/export_age_onnx.py and "
@@ -86,7 +104,7 @@ def test_onnx_export_matches_pytorch():
     """ONNX FP32 output must match the PyTorch model on MULTIPLE random
     inputs - a single lucky match is not sufficient evidence."""
     if not _require([ONNX_FP32_PATH, MODEL_WEIGHTS_PATH], "export-match test"):
-        return
+        pytest.skip("ONNX export-match artifacts not available")
 
     import onnxruntime
 
@@ -114,7 +132,7 @@ def test_onnx_export_matches_pytorch():
 def test_onnx_int8_output_shape():
     """Quantized model keeps the I/O contract: batch-1 input -> (1,) output."""
     if not _require([ONNX_INT8_PATH], "INT8 shape test"):
-        return
+        pytest.skip("INT8 ONNX artifact not available")
 
     import onnxruntime
 
@@ -135,7 +153,7 @@ def test_onnx_int8_faster_than_fp32():
     meaningful information (quantization overhead exceeding benefit on this
     CPU), so the message says exactly that."""
     if not _require([ONNX_INT8_PATH, ONNX_FP32_PATH], "INT8 speed test"):
-        return
+        pytest.skip("INT8/FP32 ONNX artifacts not available")
 
     import onnxruntime
     import time
