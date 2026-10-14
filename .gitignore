@@ -15,6 +15,7 @@ env/
 *.swp
 *.swo
 .agent/
+agent/
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
@@ -88,7 +89,6 @@ src/db_connect/*.py
 config.yaml
 
 #Dependencies
-requirements.txt
 scripts/check_datasets.py
 scripts/setup.py
 
