@@ -46,7 +46,14 @@ logger = logging.getLogger(__name__)
 
 
 class PosExtractor:
-    """POS rPPG method — wraps existing signal_processing module."""
+    """POS rPPG method — wraps the canonical signal_processing implementation.
+
+    NOTE: the canonical `apply_pos_algorithm()` was hardened to fall back to
+    the S1 (G - B) projection when the combined POS pulse collapses on highly
+    correlated RGB traces. This extractor deliberately uses the same canonical
+    code path so the live pipeline and the evaluation harness are not two
+    differently-behaving POS implementations.
+    """
 
     def __init__(self):
         from src.contactless.heart_rate.signal_processing import (
@@ -261,6 +268,12 @@ def _extract_rgb_trace(video_frames: np.ndarray, face_roi_func=None) -> np.ndarr
 
     If face_roi_func is provided, it's called with each frame to get a crop.
     Otherwise, uses the center 30% of each frame as a rough forehead proxy.
+
+    IMPORTANT for matched-method comparison: all three HR methods (POS,
+    CHROM, GREEN) must use the SAME RGB trace, same ROI, same window/stride,
+    and same physiological range. When a real FaceDetector forehead ROI is
+    available, pass it in; when it is not, the center-crop fallback must be
+    used by every method, not only by one.
     """
     n_frames = len(video_frames)
     rgb_trace = np.zeros((n_frames, 3), dtype=np.float64)
