@@ -1,0 +1,8 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "processor": "arm",
+  "fp32_mean_ms": 1.2443290495866677,
+  "int8_mean_ms": 4.994508401796338,
+  "speedup_int8_over_fp32": 0.24913944466268773,
+  "iterations": 20
+}
