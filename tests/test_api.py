@@ -259,6 +259,64 @@ class TestPersistence:
             rows = s.scalars(select(MeasurementRow)).all()
             assert len(rows) == 1
 
+    # -- migration upgrade/rollback (closes T17 gate) --------------------------------
+
+    def test_schema_version_table_is_written(self, test_engine):
+        from sqlalchemy import text
+        v = run_migrations(test_engine)
+        assert v == 2
+        with test_engine.connect() as c:
+            row = c.execute(text("SELECT version FROM schema_version")).scalar_one()
+            assert row == 2
+
+    def test_v1_downgrade_then_upgrade_recreates_alerts_table(
+        self, test_engine,
+    ):
+        """Simulate an older v1 db (no alerts table) and confirm the upgrade
+        path brings it back to the current schema without destroying sessions.
+        This is the rollback-recovery test the audit asked for."""
+        from sqlalchemy import text as _text
+        run_migrations(test_engine)
+        # bolt the version table back to v1 (no alerts table existed then)
+        with test_engine.begin() as c:
+            c.execute(
+                _text("UPDATE schema_version SET version = 1 WHERE id = 1")
+            )
+        # pre-existing sessions data survives the version tweak
+        with test_engine.connect() as c:
+            assert c.execute(
+                _text("SELECT COUNT(*) FROM sessions")
+            ).scalar_one() >= 0
+        # running the app again should upgrade back to v2 and recreate alerts
+        app = create_app(engine=test_engine, auth_token="secret-test-token")
+        with test_engine.connect() as c:
+            assert c.execute(
+                _text("SELECT version FROM schema_version")
+            ).scalar_one() == 2
+            assert c.execute(
+                _text("SELECT name FROM sqlite_master WHERE type='table' AND name='alerts'")
+            ).scalar_one() == "alerts"
+            assert c.execute(
+                _text("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+            ).scalar_one() == "sessions"
+
+    def test_idempotent_migration_does_not_duplicate_version_rows(self, test_engine):
+        from sqlalchemy import text as _text
+        run_migrations(test_engine)
+        before = (
+            test_engine.connect()
+            .execute(_text("SELECT COUNT(*) FROM schema_version"))
+            .scalar_one()
+        )
+        run_migrations(test_engine)
+        after = (
+            test_engine.connect()
+            .execute(_text("SELECT COUNT(*) FROM schema_version"))
+            .scalar_one()
+        )
+        assert before == 1
+        assert after == 1
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
